@@ -51,7 +51,8 @@ def match_job(profile: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, An
     stack_match = 0 if not tech_stack else sum(_norm(s) in user_skills for s in tech_stack) / len(tech_stack)
     bonus_match = 0 if not nice_to_have else sum(_norm(s) in user_skills for s in nice_to_have) / len(nice_to_have)
 
-    score = int(round((required_match * 0.55 + stack_match * 0.3 + bonus_match * 0.15) * 100))
+    # 必备技能作为乘法门槛：required=0 时总分直接为0，无法被其他项救回
+    score = int(round(required_match * (0.7 + stack_match * 0.2 + bonus_match * 0.1) * 100))
     exp_level = str(profile.get("experience_level", ""))
     if analysis.get("job_level") == "初级" and "应届" in exp_level:
         score = min(100, score + 8)

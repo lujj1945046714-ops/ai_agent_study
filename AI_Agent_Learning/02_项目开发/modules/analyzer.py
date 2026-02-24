@@ -193,12 +193,48 @@ def analyze_jd(jd_text: str) -> Dict[str, Any]:
     """
     Analyze JD text and return structured requirements.
     Uses LLM when available, falls back to heuristic extraction for offline runs.
+
+    重试策略：
+    - API key 无效 → 立刻报错，不重试
+    - 网络超时     → 最多重试3次，每次等1秒
+    - JSON格式错误 → 重试1次，还不行降级
+    - 重试3次仍失败 → 降级到启发式分析
     """
-    if config.DEEPSEEK_API_KEY and OpenAI is not None:
+    import time
+
+    if not config.DEEPSEEK_API_KEY or OpenAI is None:
+        return _validate_result(_heuristic_analyze_jd(jd_text))
+
+    try:
+        from openai import APITimeoutError, APIConnectionError, AuthenticationError
+    except ImportError:
+        from openai import APIError as APITimeoutError, APIError as APIConnectionError, APIError as AuthenticationError
+
+    max_retries = 3
+    json_retried = False
+
+    for attempt in range(1, max_retries + 1):
         try:
             return _validate_result(_llm_analyze_jd(jd_text))
-        except Exception:
-            pass
+        except AuthenticationError:
+            raise RuntimeError("API key 无效，请检查 DEEPSEEK_API_KEY 配置")
+        except (APITimeoutError, APIConnectionError) as e:
+            logger.warning("网络超时（第%d次），1秒后重试：%s", attempt, e)
+            if attempt < max_retries:
+                time.sleep(1)
+        except (json.JSONDecodeError, ValueError) as e:
+            if not json_retried:
+                logger.warning("JSON 解析失败，重试一次：%s", e)
+                json_retried = True
+            else:
+                logger.warning("JSON 解析连续失败，降级到启发式分析：%s", e)
+                return _validate_result(_heuristic_analyze_jd(jd_text))
+        except Exception as e:
+            logger.warning("LLM 分析未知错误（第%d次）：%s", attempt, e)
+            if attempt < max_retries:
+                time.sleep(1)
+
+    logger.warning("LLM 分析重试%d次仍失败，降级到启发式分析", max_retries)
     return _validate_result(_heuristic_analyze_jd(jd_text))
 
 

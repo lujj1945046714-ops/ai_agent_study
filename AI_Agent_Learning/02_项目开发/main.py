@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -7,6 +8,8 @@ import config
 import database
 import report_generator
 from modules import analyze_jd, fetch_jobs, generate_suggestions, match_job, recommend_projects
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 def load_user_profile(profile_path: str) -> Dict[str, Any]:
@@ -52,6 +55,37 @@ def run() -> str:
     return str(report_path)
 
 
+def run_agent(task: str = "帮我分析当前市场上适合我的 AI Agent 工程师职位") -> str:
+    """
+    Agent 模式入口：使用 ReAct 循环，LLM 自主决定工具调用顺序。
+    与 run() 的区别：
+      - run()       线性 Pipeline，顺序固定
+      - run_agent() LLM 驱动，可动态跳过低分职位、自主决定何时生成报告
+    """
+    from agent.react_agent import JobSearchAgent
+
+    base_dir = Path(__file__).resolve().parent
+    profile = load_user_profile(str(base_dir / "user_profile.json"))
+    output_dir = base_dir / "output"
+
+    agent = JobSearchAgent(
+        user_profile=profile,
+        api_key=config.DEEPSEEK_API_KEY,
+        base_url=config.DEEPSEEK_BASE_URL,
+        model=config.DEEPSEEK_MODEL,
+        output_dir=output_dir,
+    )
+
+    summary = agent.run(task)
+    print("\n── Agent 总结 ──")
+    print(summary)
+    return summary
+
+
 if __name__ == "__main__":
-    path = run()
-    print(f"分析完成，报告已生成：{path}")
+    import sys
+    if "--agent" in sys.argv:
+        run_agent()
+    else:
+        path = run()
+        print(f"分析完成，报告已生成：{path}")
