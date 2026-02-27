@@ -168,9 +168,10 @@ def tool_recommend_learning(skill_gaps: List[str], top_n: int = 3, profile: Dict
 
 def tool_generate_report(profile: Dict, ranked_jobs: List[Dict], output_dir: Path) -> Dict:
     """生成报告文件"""
-    # 补全 suggestions（如果 agent 没有单独调用）
+    # 补全 suggestions（如果 agent 没有单独调用，或传入的是字符串而非 list）
     for job in ranked_jobs:
-        if "suggestions" not in job:
+        suggestions = job.get("suggestions")
+        if not suggestions or not isinstance(suggestions, list):
             job["suggestions"] = generate_suggestions(
                 job.get("analysis", {}),
                 job.get("repos", []),

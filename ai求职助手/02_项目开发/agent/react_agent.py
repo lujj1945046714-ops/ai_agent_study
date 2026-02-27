@@ -297,9 +297,21 @@ class JobSearchAgent:
                 "repos": data.get("repos", []),
             })
 
-        # 允许 agent 传入自己整理的列表（优先使用）
+        # 允许 agent 传入自己整理的列表（优先使用），但需补全 base 字段
         if args.get("ranked_jobs"):
-            ranked_jobs = args["ranked_jobs"]
+            agent_jobs = args["ranked_jobs"]
+            merged = []
+            for job in agent_jobs:
+                job_id = job.get("job_id", "")
+                base = self._job_store.get(job_id, {})
+                merged.append({
+                    "title": base.get("title", job.get("title", "未知职位")),
+                    "company": base.get("company", job.get("company", "未知公司")),
+                    "city": base.get("city", job.get("city", "未知城市")),
+                    "salary": base.get("salary", job.get("salary", "面议")),
+                    **job,
+                })
+            ranked_jobs = merged
 
         return tool_generate_report(self.profile, ranked_jobs, self.output_dir)
 
