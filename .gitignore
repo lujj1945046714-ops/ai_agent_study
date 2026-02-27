@@ -1,26 +1,23 @@
 .env
 *.env
 
-# Boss直聘爬虫（不公开）
-AI_Agent_Learning/02_项目开发/modules/boss_scraper.py
-AI_Agent_Learning/02_项目开发/boss_session/
-
-# 学习笔记、技术准备、面试准备（本地保留，不上传）
-AI_Agent_Learning/01_学习笔记/
-AI_Agent_Learning/03_技术准备/
-AI_Agent_Learning/04_面试准备/
-
 # Claude Code 配置（本地）
 .claude/
 CLAUDE.md
 
+# Python 缓存
 **/__pycache__/
 *.pyc
 *.pyo
 
-# 数据库与输出文件
-AI_Agent_Learning/02_项目开发/data/jobs.db
-AI_Agent_Learning/02_项目开发/output/
-AI_Agent_Learning/02_项目开发/memory.json
-AI_Agent_Learning/02_项目开发/modules/.github_cache.json
-AI_Agent_Learning/02_项目开发/user_profile.json
+# Boss直聘爬虫残留
+ai求职助手/02_项目开发/modules/boss_scraper.py
+ai求职助手/02_项目开发/boss_session/
+
+# 个人数据与本地文件
+ai求职助手/02_项目开发/user_profile.json
+ai求职助手/02_项目开发/memory.json
+ai求职助手/02_项目开发/data/jobs.db
+ai求职助手/02_项目开发/output/
+ai求职助手/02_项目开发/modules/.github_cache.json
+ai求职助手/02_项目开发/.env
