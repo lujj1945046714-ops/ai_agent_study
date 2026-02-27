@@ -1,4 +1,29 @@
 from typing import Any, Dict, List, Set
+from functools import lru_cache
+
+_st_model = None
+
+
+def _get_st_model():
+    # 语义匹配已禁用（模型需联网下载，改用关键词匹配）
+    return None
+
+
+@lru_cache(maxsize=256)
+def _encode(text: str):
+    model = _get_st_model()
+    if model is None:
+        return None
+    return model.encode(text, convert_to_tensor=True)
+
+
+def _semantic_match(user_skill: str, required_skill: str, threshold: float = 0.75) -> bool:
+    from sentence_transformers import util
+    u = _encode(user_skill)
+    r = _encode(required_skill)
+    if u is None or r is None:
+        return False
+    return float(util.cos_sim(u, r)) >= threshold
 
 
 _SYNONYM = {
@@ -33,10 +58,21 @@ def _extract_user_skills(profile: Dict[str, Any]) -> Set[str]:
     return result
 
 
+def _skill_covered(user_skills: Set[str], required_skill: str) -> bool:
+    """Check exact match first, then fall back to semantic similarity."""
+    norm = _norm(required_skill)
+    if norm in user_skills:
+        return True
+    model = _get_st_model()
+    if model is None:
+        return False
+    return any(_semantic_match(u, required_skill) for u in user_skills)
+
+
 def _pick_missing(user_skills: Set[str], target_skills: List[str]) -> List[str]:
     gaps: List[str] = []
     for skill in target_skills:
-        if _norm(skill) not in user_skills:
+        if not _skill_covered(user_skills, skill):
             gaps.append(skill)
     return gaps
 
@@ -47,9 +83,9 @@ def match_job(profile: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, An
     tech_stack = analysis.get("tech_stack", [])
     nice_to_have = analysis.get("nice_to_have", [])
 
-    required_match = 0 if not required else sum(_norm(s) in user_skills for s in required) / len(required)
-    stack_match = 0 if not tech_stack else sum(_norm(s) in user_skills for s in tech_stack) / len(tech_stack)
-    bonus_match = 0 if not nice_to_have else sum(_norm(s) in user_skills for s in nice_to_have) / len(nice_to_have)
+    required_match = 0 if not required else sum(_skill_covered(user_skills, s) for s in required) / len(required)
+    stack_match = 0 if not tech_stack else sum(_skill_covered(user_skills, s) for s in tech_stack) / len(tech_stack)
+    bonus_match = 0 if not nice_to_have else sum(_skill_covered(user_skills, s) for s in nice_to_have) / len(nice_to_have)
 
     # 必备技能作为乘法门槛：required=0 时总分直接为0，无法被其他项救回
     score = int(round(required_match * (0.7 + stack_match * 0.2 + bonus_match * 0.1) * 100))
@@ -58,7 +94,7 @@ def match_job(profile: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, An
         score = min(100, score + 8)
 
     gaps = _pick_missing(user_skills, required + tech_stack)
-    matched = [skill for skill in required + tech_stack if _norm(skill) in user_skills]
+    matched = [skill for skill in required + tech_stack if _skill_covered(user_skills, skill)]
     matched_unique = list(dict.fromkeys(matched))
     gaps_unique = list(dict.fromkeys(gaps))
 

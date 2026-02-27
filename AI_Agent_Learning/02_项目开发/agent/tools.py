@@ -16,7 +16,7 @@ if str(_BASE) not in sys.path:
 import config
 import database
 import report_generator
-from modules import analyze_jd, fetch_jobs, generate_suggestions, match_job, recommend_projects
+from modules import analyze_jd, fetch_jobs, generate_suggestions, match_job, recommend_projects, smart_recommend_projects
 
 # ── Tool Schemas（传给 LLM 的函数描述）──────────────────────────────────────
 
@@ -160,9 +160,9 @@ def tool_match_job(profile: Dict, job_id: str, analysis: Dict) -> Dict:
     return {"job_id": job_id, **result}
 
 
-def tool_recommend_learning(skill_gaps: List[str], top_n: int = 3) -> Dict:
+def tool_recommend_learning(skill_gaps: List[str], top_n: int = 3, profile: Dict = None, analysis: Dict = None) -> Dict:
     """推荐学习项目"""
-    repos = recommend_projects(skill_gaps, top_n=top_n)
+    repos = smart_recommend_projects(skill_gaps, profile=profile, analysis=analysis, top_n=top_n)
     return {"skill_gaps": skill_gaps, "repos": repos}
 
 

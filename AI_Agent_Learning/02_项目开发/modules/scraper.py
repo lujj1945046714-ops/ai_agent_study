@@ -102,7 +102,56 @@ def _salary_overlap(salary_text: str, min_k: int, max_k: int) -> bool:
     return not (high_v < min_k or low_v > max_k)
 
 
-def fetch_jobs(profile: Dict[str, Any], max_results: int = 30) -> List[Dict[str, Any]]:
+def fetch_jobs_from_input() -> List[Dict[str, Any]]:
+    """交互式让用户手动粘贴 JD 文本，返回 job list。"""
+    jobs = []
+    print("\n=== 手动输入职位信息模式 ===")
+    print("请逐个输入职位信息，输入完成后选择结束。\n")
+
+    while True:
+        idx = len(jobs) + 1
+        print(f"--- 职位 {idx} ---")
+        title = input("职位名称: ").strip()
+        company = input("公司名称: ").strip()
+        city = input("城市: ").strip()
+        salary = input("薪资范围（如 25-35k）: ").strip()
+        print("JD 文本（多行，输入 --- 单独一行结束）:")
+        jd_lines = []
+        while True:
+            line = input()
+            if line.strip() == "---":
+                break
+            jd_lines.append(line)
+        jd_text = "\n".join(jd_lines)
+
+        jobs.append({
+            "job_id": f"manual-{idx:03d}",
+            "title": title,
+            "company": company,
+            "city": city,
+            "salary": salary,
+            "jd_text": jd_text,
+        })
+        print(f"[已添加] {title} @ {company}\n")
+
+        cont = input("继续添加下一个职位？(y/n): ").strip().lower()
+        if cont != "y":
+            break
+
+    print(f"\n共输入 {len(jobs)} 个职位，开始分析...\n")
+    return jobs
+
+
+def fetch_jobs(profile: Dict[str, Any], max_results: int = 30, use_boss: bool = False) -> List[Dict[str, Any]]:
+    """
+    获取职位列表。
+    use_boss=True 时进入手动输入模式。
+    use_boss=False（默认）使用 Mock 数据。
+    """
+    if use_boss:
+        return fetch_jobs_from_input()
+
+    # Mock 数据过滤逻辑
     prefs = profile.get("preferences", {})
     cities = set(prefs.get("cities", []))
     salary_min = int(prefs.get("salary_min_k", 0))
@@ -125,3 +174,4 @@ def fetch_jobs(profile: Dict[str, Any], max_results: int = 30) -> List[Dict[str,
     if not selected:
         return _MOCK_JOBS[: min(len(_MOCK_JOBS), max_results)]
     return selected
+

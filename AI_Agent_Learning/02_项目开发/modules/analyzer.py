@@ -6,6 +6,7 @@ Output: structured requirement dict
 """
 
 import json
+import logging
 import os
 import re
 import sys
@@ -20,6 +21,8 @@ except Exception:  # pragma: no cover - fallback path is runtime dependent
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+
+logger = logging.getLogger(__name__)
 
 
 _PROMPT = """你是一个技术岗位分析专家。分析以下职位描述（JD），提取关键信息。
@@ -174,19 +177,27 @@ def _llm_analyze_jd(jd_text: str) -> Dict[str, Any]:
     return json.loads(raw)
 
 
+from pydantic import BaseModel, field_validator
+
+
+class JDAnalysis(BaseModel):
+    required_skills: list[str]
+    nice_to_have: list[str]
+    core_work: list[str]
+    tech_stack: list[str]
+    job_level: str
+    summary: str
+
+    @field_validator("required_skills", "nice_to_have", "core_work", "tech_stack", mode="before")
+    @classmethod
+    def ensure_list(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v or []
+
+
 def _validate_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    required_keys = {
-        "required_skills",
-        "nice_to_have",
-        "core_work",
-        "tech_stack",
-        "job_level",
-        "summary",
-    }
-    missing = required_keys - set(result)
-    if missing:
-        raise ValueError(f"analysis result missing keys: {sorted(missing)}")
-    return result
+    return JDAnalysis(**result).model_dump()
 
 
 def analyze_jd(jd_text: str) -> Dict[str, Any]:

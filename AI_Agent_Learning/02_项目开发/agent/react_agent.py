@@ -26,6 +26,7 @@ _BASE = Path(__file__).resolve().parent.parent
 if str(_BASE) not in sys.path:
     sys.path.insert(0, str(_BASE))
 
+import memory as mem
 from agent.tools import (
     TOOL_SCHEMAS,
     tool_analyze_job,
@@ -43,6 +44,9 @@ _SYSTEM_PROMPT = """\
 
 ## 用户画像
 {user_profile_json}
+
+## 历史记忆
+{memory_context}
 
 ## 工作原则
 1. 先用 search_jobs 搜索职位，cities 和 keywords 从用户画像中提取。
@@ -77,8 +81,9 @@ class JobSearchAgent:
         self.output_dir = output_dir
         self.max_steps = max_steps
         self.messages: List[Dict] = []
-        self._job_store: Dict[str, Dict] = {}  # job_id -> full job dict
-        self._results: Dict[str, Dict] = {}    # job_id -> {analysis, match, repos}
+        self._job_store: Dict[str, Dict] = {}
+        self._results: Dict[str, Dict] = {}
+        self._memory = mem.load()
 
         try:
             from openai import OpenAI
@@ -89,8 +94,10 @@ class JobSearchAgent:
     # ── 公开入口 ────────────────────────────────────────────────────────────
 
     def run(self, task: str = "帮我分析当前市场上适合我的 AI Agent 工程师职位") -> str:
+        memory_context = mem.build_memory_prompt(self._memory) or "暂无历史记录"
         system = _SYSTEM_PROMPT.format(
-            user_profile_json=json.dumps(self.profile, ensure_ascii=False, indent=2)
+            user_profile_json=json.dumps(self.profile, ensure_ascii=False, indent=2),
+            memory_context=memory_context,
         )
         self.messages = [
             {"role": "system", "content": system},
@@ -101,40 +108,94 @@ class JobSearchAgent:
 
         for step in range(1, self.max_steps + 1):
             logger.info("── Step %d ──", step)
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.messages,
-                tools=TOOL_SCHEMAS,
-                tool_choice="auto",
-            )
 
-            msg = response.choices[0].message
-            # 将 assistant 消息追加到历史（转为 dict 兼容序列化）
-            self.messages.append(self._msg_to_dict(msg))
+            tool_calls_buffer: Dict[int, Dict] = {}
+            full_content = ""
 
-            if not msg.tool_calls:
-                # LLM 不再调用工具 → 最终答案
+            print(f"\n[Step {step}] ", end="", flush=True)
+
+            try:
+                with self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.messages,
+                    tools=TOOL_SCHEMAS,
+                    tool_choice="auto",
+                    stream=True,
+                ) as stream:
+                    for chunk in stream:
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            print(delta.content, end="", flush=True)
+                            full_content += delta.content
+                        if delta.tool_calls:
+                            for tc in delta.tool_calls:
+                                idx = tc.index
+                                buf = tool_calls_buffer.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                                if tc.id:
+                                    buf["id"] = tc.id
+                                if tc.function and tc.function.name:
+                                    buf["name"] = tc.function.name
+                                if tc.function and tc.function.arguments:
+                                    buf["arguments"] += tc.function.arguments
+            except Exception as stream_err:
+                logger.warning("流式响应中断，尝试重试: %s", stream_err)
+                if not full_content and not tool_calls_buffer:
+                    # 完全没收到任何内容，重试一次（非流式）
+                    resp = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=self.messages,
+                        tools=TOOL_SCHEMAS,
+                        tool_choice="auto",
+                    )
+                    msg = resp.choices[0].message
+                    full_content = msg.content or ""
+                    if msg.tool_calls:
+                        for i, tc in enumerate(msg.tool_calls):
+                            tool_calls_buffer[i] = {
+                                "id": tc.id,
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+
+            if full_content:
+                print()
+
+            msg_dict: Dict[str, Any] = {"role": "assistant", "content": full_content}
+            if tool_calls_buffer:
+                msg_dict["tool_calls"] = [
+                    {
+                        "id": buf["id"],
+                        "type": "function",
+                        "function": {"name": buf["name"], "arguments": buf["arguments"]},
+                    }
+                    for buf in tool_calls_buffer.values()
+                ]
+            self.messages.append(msg_dict)
+
+            if not tool_calls_buffer:
                 logger.info("Agent 完成，共 %d 步", step)
-                return msg.content or "分析完成"
+                self._save_memory(full_content)
+                return full_content or "分析完成"
 
-            # 执行所有工具调用
-            for tc in msg.tool_calls:
-                name = tc.function.name
+            for buf in tool_calls_buffer.values():
+                name = buf["name"]
                 try:
-                    args = json.loads(tc.function.arguments)
+                    args = json.loads(buf["arguments"])
                 except json.JSONDecodeError:
                     args = {}
 
                 logger.info("调用工具: %s  参数: %s", name, args)
+                print(f"\n[工具调用] {name}", flush=True)
                 result = self._dispatch(name, args)
                 logger.info("工具结果: %s", json.dumps(result, ensure_ascii=False)[:200])
 
                 self.messages.append({
                     "role": "tool",
-                    "tool_call_id": tc.id,
+                    "tool_call_id": buf["id"],
                     "content": json.dumps(result, ensure_ascii=False),
                 })
 
+        self._save_memory("")
         return "已达到最大步骤数，分析终止"
 
     # ── 工具分发 ────────────────────────────────────────────────────────────
@@ -202,14 +263,24 @@ class JobSearchAgent:
         return result
 
     def _handle_recommend_learning(self, args: Dict) -> Dict:
-        result = tool_recommend_learning(
-            skill_gaps=args.get("skill_gaps", []),
-            top_n=args.get("top_n", 3),
-        )
-        # 尝试关联到最近处理的 job_id（通过 skill_gaps 反查）
+        # 找到对应 job 的 analysis
+        skill_gaps = args.get("skill_gaps", [])
+        analysis = {}
         for job_id, data in self._results.items():
             match = data.get("match", {})
-            if set(match.get("skill_gaps", [])) == set(args.get("skill_gaps", [])):
+            if set(match.get("skill_gaps", [])) == set(skill_gaps):
+                analysis = data.get("analysis", {})
+                break
+
+        result = tool_recommend_learning(
+            skill_gaps=skill_gaps,
+            top_n=args.get("top_n", 3),
+            profile=self.profile,
+            analysis=analysis,
+        )
+        for job_id, data in self._results.items():
+            match = data.get("match", {})
+            if set(match.get("skill_gaps", [])) == set(skill_gaps):
                 data["repos"] = result["repos"]
                 break
         return result
@@ -234,20 +305,16 @@ class JobSearchAgent:
 
     # ── 工具函数 ────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _msg_to_dict(msg) -> Dict:
-        """将 openai Message 对象转为可序列化的 dict"""
-        d: Dict[str, Any] = {"role": msg.role, "content": msg.content or ""}
-        if msg.tool_calls:
-            d["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in msg.tool_calls
-            ]
-        return d
+    def _save_memory(self, _final_content: str) -> None:
+        """Extract top result from this run and persist to memory."""
+        if not self._results:
+            return
+        best = max(self._results.items(), key=lambda kv: kv[1].get("match", {}).get("score", 0))
+        job_id, data = best
+        job_info = self._job_store.get(job_id, {})
+        top_job = job_info.get("title", job_id)
+        top_score = data.get("match", {}).get("score", 0)
+        main_gaps = data.get("match", {}).get("skill_gaps", [])
+        mem.append_search(self._memory, top_job, top_score, main_gaps)
+        mem.save(self._memory)
+        logger.info("记忆已保存：top_job=%s score=%d", top_job, top_score)
