@@ -5,10 +5,38 @@
 1. 解析用户输入中的指代（"这个"、"它"、"再来几个"）
 2. 理解简短追问
 3. 结合记忆推断意图
+4. LLM 增强意图识别（规则匹配兜底）
 """
 
+import json
+import logging
 from typing import Dict, List, Any, Optional
 from agent.conversation_memory import ConversationMemory
+
+logger = logging.getLogger(__name__)
+
+_LLM_INTENT_PROMPT = """\
+你是一个意图识别助手。根据用户输入和对话上下文，判断用户的意图。
+
+## 可选意图
+- recommend_more: 用户想要更多学习项目推荐
+- query_job: 用户想查询某个职位的详情/匹配度
+- compare_jobs: 用户想对比多个职位
+- create_plan: 用户想制定学习计划
+- analyze_job: 用户想分析一个新职位
+- search_jobs: 用户想搜索职位
+- unknown: 无法判断
+
+## 对话上下文
+{context_summary}
+
+## 用户输入
+{user_input}
+
+## 要求
+只返回一个 JSON 对象，格式如下：
+{{"intent": "<意图>", "confidence": <0.0-1.0>, "reason": "<简短理由>"}}
+"""
 
 
 class ContextualUnderstanding:
@@ -27,14 +55,18 @@ class ContextualUnderstanding:
     # 指代词
     REFERENCE_WORDS = ["这个", "它", "那个", "该", "此"]
 
-    def __init__(self, memory: ConversationMemory):
+    def __init__(self, memory: ConversationMemory, llm_client=None, model: str = "deepseek-chat"):
         """
         初始化上下文理解
 
         Args:
             memory: 对话记忆系统
+            llm_client: OpenAI 兼容客户端（可选，用于 LLM 意图识别）
+            model: LLM 模型名称
         """
         self.memory = memory
+        self._llm_client = llm_client
+        self._model = model
 
     # ==================== 意图识别 ====================
 
@@ -66,25 +98,49 @@ class ContextualUnderstanding:
         }
 
     def _detect_intent(self, user_input: str) -> str:
-        """
-        检测用户意图
-
-        Args:
-            user_input: 用户输入
-
-        Returns:
-            意图类型
-        """
+        """规则匹配意图，unknown 时尝试 LLM 兜底"""
         user_input_lower = user_input.lower()
 
-        # 遍历所有意图模式
         for intent, patterns in self.INTENT_PATTERNS.items():
             for pattern in patterns:
                 if pattern in user_input_lower:
                     return intent
 
-        # 默认意图
+        # 规则未命中，尝试 LLM
+        if self._llm_client:
+            llm_intent = self._detect_intent_llm(user_input)
+            if llm_intent and llm_intent != "unknown":
+                return llm_intent
+
         return "unknown"
+
+    def _detect_intent_llm(self, user_input: str) -> str:
+        """使用 LLM 识别意图（规则匹配兜底）"""
+        try:
+            context_summary = self.memory.get_context_summary() or "暂无上下文"
+            prompt = _LLM_INTENT_PROMPT.format(
+                context_summary=context_summary,
+                user_input=user_input,
+            )
+            resp = self._llm_client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=100,
+            )
+            raw = resp.choices[0].message.content.strip()
+            # 提取 JSON
+            if "```" in raw:
+                raw = raw.split("```")[1].lstrip("json").strip()
+            data = json.loads(raw)
+            intent = data.get("intent", "unknown")
+            confidence = data.get("confidence", 0.0)
+            logger.debug("LLM 意图识别: %s (置信度 %.2f) — %s", intent, confidence, data.get("reason", ""))
+            # 置信度低于 0.6 视为 unknown
+            return intent if confidence >= 0.6 else "unknown"
+        except Exception as e:
+            logger.warning("LLM 意图识别失败: %s", e)
+            return "unknown"
 
     def _resolve_references(self, user_input: str, intent: str) -> Dict[str, Any]:
         """

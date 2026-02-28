@@ -120,7 +120,6 @@ class JobSearchAgent:
         if enable_phase2:
             self.conversation_memory = ConversationMemory(max_history=20)
             self.suggestion_engine = ProactiveSuggestionEngine()
-            self.context_understanding = ContextualUnderstanding(self.conversation_memory)
             self.learning_planner = LearningPlanner()
 
             # 尝试加载会话
@@ -137,6 +136,14 @@ class JobSearchAgent:
             self.client = OpenAI(api_key=api_key, base_url=base_url)
         except ImportError:
             raise RuntimeError("需要安装 openai 包：pip install openai")
+
+        # ContextualUnderstanding 在 client 初始化后创建，传入 LLM 客户端
+        if enable_phase2:
+            self.context_understanding = ContextualUnderstanding(
+                self.conversation_memory,
+                llm_client=self.client,
+                model=model,
+            )
 
     # ── 公开入口 ────────────────────────────────────────────────────────────
 
