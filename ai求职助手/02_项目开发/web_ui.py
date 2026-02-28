@@ -66,10 +66,14 @@ def _read_resume_file(file) -> str:
     """读取上传的简历文件内容"""
     if file is None:
         return ""
-    path = Path(file.name)
+    # gr.File 可能传入路径字符串或带 .name 属性的对象
+    path = Path(file if isinstance(file, (str, Path)) else file.name)
     suffix = path.suffix.lower()
     if suffix in (".txt", ".md"):
-        return path.read_text(encoding="utf-8")
+        try:
+            return path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return path.read_text(encoding="gbk", errors="replace")
     elif suffix == ".pdf":
         try:
             import pypdf
@@ -89,15 +93,15 @@ def analyze_resume(resume_text: str, resume_file) -> Tuple[str, str]:
     """触发简历分析，返回 (profile_status, profile_summary)"""
     global _profile, _agent
 
-    text = resume_text.strip()
-    if not text:
-        text = _read_resume_file(resume_file)
-    if not text:
-        return "⚠️ 请粘贴简历内容或上传简历文件", ""
-    if text.startswith("❌"):
-        return text, ""
-
     try:
+        text = resume_text.strip()
+        if not text:
+            text = _read_resume_file(resume_file)
+        if not text:
+            return "⚠️ 请粘贴简历内容或上传简历文件", ""
+        if text.startswith("❌"):
+            return text, ""
+
         from openai import OpenAI
         client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
         profile = extract_profile_from_resume(client, config.DEEPSEEK_MODEL, text)
@@ -116,6 +120,7 @@ def analyze_resume(resume_text: str, resume_file) -> Tuple[str, str]:
 def confirm_jd(jd_text: str, chat_history: list) -> Tuple[list, str, str]:
     """JD 确认并直接分析，返回 (chat_history, jd_status, analysis_md)"""
     global _profile
+    chat_history = chat_history or []
 
     if not _profile:
         msg = "⚠️ 请先上传简历并建立画像"
@@ -133,8 +138,10 @@ def confirm_jd(jd_text: str, chat_history: list) -> Tuple[list, str, str]:
         agent.preload_jobs(jobs)
 
         result = agent.run("请分析这个职位与我的匹配度，列出匹配技能和技能缺口")
+        jd_preview = " ".join(jd_text.split())
+        jd_display = (jd_preview[:80] + "...") if len(jd_preview) > 80 else jd_preview
         chat_history = chat_history + [
-            {"role": "user", "content": f"[已读入JD] {jd_text[:80]}..."},
+            {"role": "user", "content": f"[已读入JD] {jd_display}"},
             {"role": "assistant", "content": result},
         ]
         jd_status = f"✅ 已读入 {len(jobs)} 个职位"
@@ -158,6 +165,8 @@ def _load_profile_on_start() -> Tuple[str, str]:
         _agent = None
         summary = format_profile_summary(existing)
         return "✅ 已加载本地画像", summary
+    _profile = None
+    _agent = None
     return "请上传简历或粘贴简历内容以建立画像", ""
 
 
