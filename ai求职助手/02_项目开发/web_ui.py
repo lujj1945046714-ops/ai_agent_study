@@ -41,6 +41,9 @@ _profile = None
 _output_dir = _BASE / "output"
 _output_dir.mkdir(exist_ok=True)
 
+_MOCK_TITLES = {"待分析职位", ""}
+_MOCK_CITIES  = {"未知城市", ""}
+
 
 def _get_agent(profile: dict):
     """获取或创建 Agent 实例"""
@@ -117,7 +120,12 @@ def analyze_resume(resume_text: str, resume_file) -> Tuple[str, str]:
 
 # ── JD 确认并分析 ─────────────────────────────────────────────────────────────
 
-def confirm_jd(jd_text: str, chat_history: list) -> Tuple[list, str, str]:
+def confirm_jd(
+    jd_text: str,
+    jd_title_input: str,
+    jd_city_input: str,
+    chat_history: list,
+) -> Tuple[list, str, str]:
     """JD 确认并直接分析，返回 (chat_history, jd_status, analysis_md)"""
     global _profile
     chat_history = chat_history or []
@@ -133,7 +141,47 @@ def confirm_jd(jd_text: str, chat_history: list) -> Tuple[list, str, str]:
     try:
         from openai import OpenAI
         client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
-        jobs = _parse_jd_text(client, jd_text)
+
+        segments = _split_jd_segments(jd_text)
+        manual_title = jd_title_input.strip()
+        manual_city = jd_city_input.strip()
+        use_manual = bool(manual_title and manual_city)
+
+        jobs = []
+        missing_segments = []
+
+        for i, seg in enumerate(segments):
+            parsed = _parse_jd_text(client, seg, i)
+            if use_manual:
+                if parsed is None:
+                    parsed = {
+                        "job_id": f"jd-{i+1:03d}",
+                        "title": "",
+                        "company": "",
+                        "city": "",
+                        "salary": "面议",
+                        "jd_text": seg,
+                    }
+                parsed["title"] = manual_title
+                parsed["city"] = manual_city
+                jobs.append(parsed)
+            else:
+                if parsed is None or parsed["title"] in _MOCK_TITLES or parsed["city"] in _MOCK_CITIES:
+                    missing_segments.append(i + 1)
+                else:
+                    jobs.append(parsed)
+
+        if missing_segments:
+            warn = (
+                f"⚠️ 第 {missing_segments} 段 JD 未能识别出岗位名称或城市，"
+                "请在上方「岗位名称」和「城市」输入框手动填写后重试。"
+            )
+            chat_history = chat_history + [{"role": "assistant", "content": warn}]
+            return chat_history, warn, ""
+
+        if not jobs:
+            return chat_history, "⚠️ 没有可分析的职位，请检查 JD 内容", ""
+
         agent = _get_agent(_profile)
         agent.preload_jobs(jobs)
 
@@ -186,10 +234,15 @@ def chat(message: str, history: List[dict], jd_text: str) -> Tuple[List[dict], s
     try:
         agent = _get_agent(_profile)
 
-        if jd_text.strip():
+        if jd_text.strip() and not agent._job_store:
             from openai import OpenAI
             client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
-            jobs = _parse_jd_text(client, jd_text)
+            segments = _split_jd_segments(jd_text)
+            jobs = []
+            for i, seg in enumerate(segments):
+                parsed = _parse_jd_text(client, seg, i)
+                if parsed:
+                    jobs.append(parsed)
             if jobs:
                 agent.preload_jobs(jobs)
 
@@ -210,24 +263,28 @@ def chat(message: str, history: List[dict], jd_text: str) -> Tuple[List[dict], s
         return history, "", ""
 
 
-def _parse_jd_text(client, jd_text: str) -> list:
-    """用 LLM 解析粘贴的 JD 文本"""
+def _split_jd_segments(raw: str) -> list:
+    """按单独一行 '---' 拆分多段 JD，过滤空段"""
+    import re
+    segments = re.split(r'\n\s*---\s*\n', raw)
+    return [s.strip() for s in segments if s.strip()]
+
+
+def _parse_jd_text(client, jd_text: str, job_index: int = 0) -> dict | None:
+    """用 LLM 解析单段 JD，返回 dict 或 None"""
     try:
-        prompt = f"""请从以下职位描述中提取结构化信息，返回 JSON 数组：
-[{{
-  "job_id": "jd-001",
+        prompt = f"""请从以下职位描述中提取结构化信息，返回单个 JSON 对象：
+{{
   "title": "职位名称",
   "company": "公司名称",
   "city": "城市",
-  "salary": "薪资范围",
-  "jd_text": "完整JD文本"
-}}]
+  "salary": "薪资范围"
+}}
 
 职位描述：
 {jd_text[:3000]}
 
 只返回 JSON，不要其他内容。"""
-
         resp = client.chat.completions.create(
             model=config.DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -236,21 +293,18 @@ def _parse_jd_text(client, jd_text: str) -> list:
         raw = resp.choices[0].message.content.strip()
         if "```" in raw:
             raw = raw.split("```")[1].lstrip("json").strip()
-        jobs = json.loads(raw)
-        for j in jobs:
-            if not j.get("jd_text"):
-                j["jd_text"] = jd_text
-        return jobs
-    except Exception as e:
-        logger.warning("JD 解析失败: %s", e)
-        return [{
-            "job_id": "jd-001",
-            "title": "待分析职位",
-            "company": "未知公司",
-            "city": "未知城市",
-            "salary": "面议",
+        parsed = json.loads(raw)
+        return {
+            "job_id": f"jd-{job_index+1:03d}",
+            "title": parsed.get("title", ""),
+            "company": parsed.get("company", ""),
+            "city": parsed.get("city", ""),
+            "salary": parsed.get("salary", "面议"),
             "jd_text": jd_text,
-        }]
+        }
+    except Exception as e:
+        logger.warning("JD 解析失败 (segment %d): %s", job_index, e)
+        return None
 
 
 def _build_analysis_panel(agent) -> str:
@@ -292,7 +346,7 @@ def _build_analysis_panel(agent) -> str:
             for r in repos[:3]:
                 repo = r.get("repo", "")
                 stars = r.get("stars", 0)
-                lines.append(f"  - [{repo}](https://github.com/{repo}) ⭐{stars:,}")
+                lines.append(f"  - [{repo}](https://github.com/{repo}) ⭐{int(stars):,}")
 
         lines.append("")
 
@@ -375,9 +429,22 @@ def build_ui():
                         profile_summary = gr.Textbox(label="画像摘要", interactive=False, lines=2)
 
                         gr.Markdown("### 粘贴 JD")
+                        with gr.Row():
+                            jd_title_input = gr.Textbox(
+                                label="岗位名称（选填，填写后覆盖自动识别）",
+                                placeholder="例如：后端工程师",
+                                lines=1,
+                                scale=1,
+                            )
+                            jd_city_input = gr.Textbox(
+                                label="城市（选填，填写后覆盖自动识别）",
+                                placeholder="例如：上海",
+                                lines=1,
+                                scale=1,
+                            )
                         jd_input = gr.Textbox(
-                            label="职位描述",
-                            placeholder="粘贴职位描述...",
+                            label="职位描述（多个职位用单独一行 --- 分隔）",
+                            placeholder="粘贴职位描述...\n\n---\n\n粘贴第二个职位描述...",
                             lines=6,
                         )
                         confirm_jd_btn = gr.Button("确认JD并分析匹配度", variant="primary")
@@ -412,15 +479,10 @@ def build_ui():
                 )
                 confirm_jd_btn.click(
                     confirm_jd,
-                    inputs=[jd_input, chatbot],
+                    inputs=[jd_input, jd_title_input, jd_city_input, chatbot],
                     outputs=[chatbot, jd_status, analysis_panel],
                 )
                 send_btn.click(
-                    chat,
-                    inputs=[msg_input, chatbot, jd_input],
-                    outputs=[chatbot, msg_input, analysis_panel],
-                )
-                msg_input.submit(
                     chat,
                     inputs=[msg_input, chatbot, jd_input],
                     outputs=[chatbot, msg_input, analysis_panel],
