@@ -10,6 +10,7 @@ AI 求职助手 Web UI
 """
 
 import json
+import hashlib
 import sys
 import logging
 from pathlib import Path
@@ -43,6 +44,7 @@ _output_dir.mkdir(exist_ok=True)
 
 _MOCK_TITLES = {"待分析职位", ""}
 _MOCK_CITIES  = {"未知城市", ""}
+_last_jd_hash: str = ""
 
 
 def _get_agent(profile: dict):
@@ -94,7 +96,7 @@ def _read_resume_file(file) -> str:
 
 def analyze_resume(resume_text: str, resume_file) -> Tuple[str, str]:
     """触发简历分析，返回 (profile_status, profile_summary)"""
-    global _profile, _agent
+    global _profile, _agent, _last_jd_hash
 
     try:
         text = resume_text.strip()
@@ -110,6 +112,7 @@ def analyze_resume(resume_text: str, resume_file) -> Tuple[str, str]:
         profile = extract_profile_from_resume(client, config.DEEPSEEK_MODEL, text)
         _profile = profile
         _agent = None
+        _last_jd_hash = ""
         save_profile(profile)
         summary = format_profile_summary(profile)
         return "✅ 画像提取成功，已保存", summary
@@ -127,7 +130,7 @@ def confirm_jd(
     chat_history: list,
 ) -> Tuple[list, str, str]:
     """JD 确认并直接分析，返回 (chat_history, jd_status, analysis_md)"""
-    global _profile
+    global _profile, _last_jd_hash
     chat_history = chat_history or []
 
     if not _profile:
@@ -166,7 +169,7 @@ def confirm_jd(
                 parsed["city"] = manual_city
                 jobs.append(parsed)
             else:
-                if parsed is None or parsed["title"] in _MOCK_TITLES or parsed["city"] in _MOCK_CITIES:
+                if parsed is None or _is_missing_meta(parsed["title"], parsed["city"]):
                     missing_segments.append(i + 1)
                 else:
                     jobs.append(parsed)
@@ -184,6 +187,7 @@ def confirm_jd(
 
         agent = _get_agent(_profile)
         agent.preload_jobs(jobs)
+        _last_jd_hash = hashlib.md5(jd_text.encode()).hexdigest()
 
         result = agent.run("请分析这个职位与我的匹配度，列出匹配技能和技能缺口")
         jd_preview = " ".join(jd_text.split())
@@ -206,15 +210,17 @@ def confirm_jd(
 
 def _load_profile_on_start() -> Tuple[str, str]:
     """页面加载时检测已有画像"""
-    global _profile, _agent
+    global _profile, _agent, _last_jd_hash
     existing = load_existing_profile()
     if existing:
         _profile = existing
         _agent = None
+        _last_jd_hash = ""
         summary = format_profile_summary(existing)
         return "✅ 已加载本地画像", summary
     _profile = None
     _agent = None
+    _last_jd_hash = ""
     return "请上传简历或粘贴简历内容以建立画像", ""
 
 
@@ -222,7 +228,7 @@ def _load_profile_on_start() -> Tuple[str, str]:
 
 def chat(message: str, history: List[dict], jd_text: str) -> Tuple[List[dict], str, str]:
     """处理聊天消息"""
-    global _profile
+    global _profile, _last_jd_hash
 
     if not _profile:
         history = history + [{"role": "assistant", "content": "⚠️ 请先在左侧上传简历建立画像"}]
@@ -234,17 +240,20 @@ def chat(message: str, history: List[dict], jd_text: str) -> Tuple[List[dict], s
     try:
         agent = _get_agent(_profile)
 
-        if jd_text.strip() and not agent._job_store:
-            from openai import OpenAI
-            client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
-            segments = _split_jd_segments(jd_text)
-            jobs = []
-            for i, seg in enumerate(segments):
-                parsed = _parse_jd_text(client, seg, i)
-                if parsed:
-                    jobs.append(parsed)
-            if jobs:
-                agent.preload_jobs(jobs)
+        if jd_text.strip():
+            jd_hash = hashlib.md5(jd_text.encode()).hexdigest()
+            if jd_hash != _last_jd_hash:
+                from openai import OpenAI
+                client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+                segments = _split_jd_segments(jd_text)
+                jobs = []
+                for i, seg in enumerate(segments):
+                    parsed = _parse_jd_text(client, seg, i)
+                    if parsed and not _is_missing_meta(parsed["title"], parsed["city"]):
+                        jobs.append(parsed)
+                if jobs:
+                    agent.preload_jobs(jobs)
+                    _last_jd_hash = jd_hash
 
         result = agent.run(message)
         history = history + [
@@ -263,10 +272,18 @@ def chat(message: str, history: List[dict], jd_text: str) -> Tuple[List[dict], s
         return history, "", ""
 
 
+def _is_missing_meta(title: str, city: str) -> bool:
+    """判断LLM提取的title/city是否缺失或为mock值"""
+    t = (title or "").strip()
+    c = (city or "").strip()
+    return t in _MOCK_TITLES or c in _MOCK_CITIES
+
+
 def _split_jd_segments(raw: str) -> list:
     """按单独一行 '---' 拆分多段 JD，过滤空段"""
     import re
-    segments = re.split(r'\n\s*---\s*\n', raw)
+    normalized = raw.replace('\r\n', '\n').replace('\r', '\n')
+    segments = re.split(r'(?m)^\s*---\s*$', normalized)
     return [s.strip() for s in segments if s.strip()]
 
 
@@ -346,7 +363,11 @@ def _build_analysis_panel(agent) -> str:
             for r in repos[:3]:
                 repo = r.get("repo", "")
                 stars = r.get("stars", 0)
-                lines.append(f"  - [{repo}](https://github.com/{repo}) ⭐{int(stars):,}")
+                try:
+                    stars_int = int(float(stars)) if stars not in (None, "") else 0
+                except (TypeError, ValueError):
+                    stars_int = 0
+                lines.append(f"  - [{repo}](https://github.com/{repo}) ⭐{stars_int:,}")
 
         lines.append("")
 
@@ -376,8 +397,9 @@ def generate_plan(job_id: str, timeframe: str) -> str:
 
 def clear_session() -> Tuple[List[dict], str, str]:
     """清空会话"""
-    global _agent
+    global _agent, _last_jd_hash
     _agent = None
+    _last_jd_hash = ""
     return [], "", "会话已清空"
 
 
