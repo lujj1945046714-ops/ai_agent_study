@@ -22,6 +22,14 @@ if str(_BASE) not in sys.path:
     sys.path.insert(0, str(_BASE))
 
 import config
+from onboarding import (
+    extract_profile_from_history,
+    format_profile_summary,
+    ONBOARDING_SYSTEM_PROMPT,
+    save_profile,
+    load_existing_profile,
+    PROFILE_PATH,
+)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -279,6 +287,103 @@ def get_session_stats() -> str:
     return "\n".join(lines)
 
 
+# ── 画像收集对话 ──────────────────────────────────────────────────────────────
+
+def _llm_onboarding_reply(messages: list) -> str:
+    """调用 LLM 获取画像收集对话回复"""
+    from openai import OpenAI
+    client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+    resp = client.chat.completions.create(
+        model=config.DEEPSEEK_MODEL,
+        messages=messages,
+        temperature=0.7,
+    )
+    return resp.choices[0].message.content
+
+
+def start_onboarding() -> tuple[list, str, str, list]:
+    """页面加载时触发：有已保存画像则直接加载，否则启动 LLM 开场白。
+    返回 (ob_history, profile_status, profile_summary, messages_state)"""
+    global _profile, _agent
+
+    existing = load_existing_profile()
+    if existing:
+        _profile = existing
+        _agent = None
+        summary = format_profile_summary(existing)
+        greeting = f"已加载你的求职画像：\n{summary}\n\n如需重新收集，点击「重新收集」。"
+        history = [{"role": "assistant", "content": greeting}]
+        messages_state = [
+            {"role": "system", "content": ONBOARDING_SYSTEM_PROMPT},
+            {"role": "assistant", "content": greeting},
+        ]
+        return history, "画像已加载", summary, messages_state
+
+    messages_state = [{"role": "system", "content": ONBOARDING_SYSTEM_PROMPT}]
+    try:
+        opening = _llm_onboarding_reply(messages_state)
+    except Exception as e:
+        opening = "你好！我是你的求职助理，让我来帮你建立求职画像。首先，请问怎么称呼你呢？"
+        logger.warning("LLM 开场白失败，使用默认: %s", e)
+    messages_state = messages_state + [{"role": "assistant", "content": opening}]
+    history = [{"role": "assistant", "content": opening}]
+    return history, "请回答助理的问题以建立画像", "", messages_state
+
+
+def onboarding_chat(user_msg: str, ob_history: list, messages_state: list) -> tuple[list, str, str, list]:
+    """处理画像收集对话，返回 (ob_history, profile_status, profile_summary, messages_state)"""
+    global _profile, _agent
+
+    if not user_msg.strip():
+        return ob_history, "", "", messages_state
+
+    messages_state = messages_state + [{"role": "user", "content": user_msg}]
+    ob_history = ob_history + [{"role": "user", "content": user_msg}]
+
+    try:
+        reply = _llm_onboarding_reply(messages_state)
+    except Exception as e:
+        reply = f"抱歉，出现了错误：{e}"
+
+    messages_state = messages_state + [{"role": "assistant", "content": reply}]
+
+    completed = "[COLLECTION_COMPLETE]" in reply
+    display = reply.replace("[COLLECTION_COMPLETE]", "").strip()
+    ob_history = ob_history + [{"role": "assistant", "content": display}]
+
+    if completed:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+            history_only = [m for m in messages_state if m["role"] != "system"]
+            profile = extract_profile_from_history(client, config.DEEPSEEK_MODEL, history_only)
+            _profile = profile
+            _agent = None
+            save_profile(profile)
+            summary = format_profile_summary(profile)
+            return ob_history, "✅ 画像收集完成，已保存", summary, messages_state
+        except Exception as e:
+            logger.exception("画像提取失败")
+            return ob_history, f"❌ 画像提取失败: {e}", "", messages_state
+
+    return ob_history, "收集中...", "", messages_state
+
+
+def reset_onboarding() -> tuple[list, str, str, list]:
+    """重置收集状态，重新开始。返回 (ob_history, profile_status, profile_summary, messages_state)"""
+    global _profile, _agent
+    _profile = None
+    _agent = None
+    messages_state = [{"role": "system", "content": ONBOARDING_SYSTEM_PROMPT}]
+    try:
+        opening = _llm_onboarding_reply(messages_state)
+    except Exception:
+        opening = "你好！我是你的求职助理，让我来帮你建立求职画像。首先，请问怎么称呼你呢？"
+    messages_state = messages_state + [{"role": "assistant", "content": opening}]
+    history = [{"role": "assistant", "content": opening}]
+    return history, "已重置，请重新回答问题", "", messages_state
+
+
 # ── 默认用户画像 ─────────────────────────────────────────────────────────────
 
 _DEFAULT_PROFILE = json.dumps({
@@ -315,16 +420,14 @@ def build_ui():
                 with gr.Row():
                     with gr.Column(scale=1):
                         gr.Markdown("### 用户画像")
-                        profile_input = gr.Textbox(
-                            label="用户画像 JSON",
-                            value=_DEFAULT_PROFILE,
-                            lines=12,
-                            max_lines=20,
-                        )
+                        ob_chatbot = gr.Chatbot(height=280, type="messages", label="画像助手")
+                        ob_state = gr.State([])
+                        ob_input = gr.Textbox(placeholder="回复助手的问题...", lines=1, label="")
                         with gr.Row():
-                            load_btn = gr.Button("加载画像", variant="primary")
-                            file_btn = gr.UploadButton("从文件加载", file_types=[".json"])
-                        profile_status = gr.Textbox(label="状态", interactive=False, lines=4)
+                            ob_send_btn = gr.Button("发送", variant="primary")
+                            ob_reset_btn = gr.Button("重新收集", variant="secondary")
+                        profile_status = gr.Textbox(label="状态", interactive=False, lines=1)
+                        profile_summary = gr.Textbox(label="画像摘要", interactive=False, lines=2)
 
                         gr.Markdown("### 粘贴 JD（可选）")
                         jd_input = gr.Textbox(
@@ -351,15 +454,23 @@ def build_ui():
                     analysis_panel = gr.Markdown("暂无分析结果", label="分析结果")
 
                 # 事件绑定
-                load_btn.click(
-                    load_profile,
-                    inputs=[profile_input],
-                    outputs=[profile_status, profile_status],
+                demo.load(
+                    start_onboarding,
+                    outputs=[ob_chatbot, profile_status, profile_summary, ob_state],
                 )
-                file_btn.upload(
-                    load_profile_from_file,
-                    inputs=[file_btn],
-                    outputs=[profile_status, profile_status],
+                ob_send_btn.click(
+                    onboarding_chat,
+                    inputs=[ob_input, ob_chatbot, ob_state],
+                    outputs=[ob_chatbot, profile_status, profile_summary, ob_state],
+                ).then(lambda: "", outputs=[ob_input])
+                ob_input.submit(
+                    onboarding_chat,
+                    inputs=[ob_input, ob_chatbot, ob_state],
+                    outputs=[ob_chatbot, profile_status, profile_summary, ob_state],
+                ).then(lambda: "", outputs=[ob_input])
+                ob_reset_btn.click(
+                    reset_onboarding,
+                    outputs=[ob_chatbot, profile_status, profile_summary, ob_state],
                 )
                 send_btn.click(
                     chat,
