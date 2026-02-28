@@ -1,0 +1,114 @@
+{
+  "user_preferences": {},
+  "search_history": [
+    {
+      "date": "2026-02-28",
+      "top_job": "AI大模型研发工程师",
+      "top_score": 14,
+      "main_gaps": [
+        "深度学习",
+        "自然语言处理",
+        "PyTorch/TensorFlow",
+        "大语言模型"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "初级 AI 工程师（Agent方向）",
+      "top_score": 27,
+      "main_gaps": [
+        "LLM API调用",
+        "Prompt编写",
+        "LLM API"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "jd-002",
+      "top_score": 22,
+      "main_gaps": [
+        "Python/C++/Go编程语言",
+        "自然语言处理/知识图谱/机器学习/神经网络/计算机视觉",
+        "Transformer模型推理",
+        "LLM应用程序开发"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "AI大模型研发工程师",
+      "top_score": 38,
+      "main_gaps": [
+        "深度学习",
+        "机器学习",
+        "PyTorch/TensorFlow",
+        "Transformer架构"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "AI大模型研发工程师",
+      "top_score": 38,
+      "main_gaps": [
+        "深度学习",
+        "机器学习",
+        "PyTorch/TensorFlow",
+        "Transformer架构"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "软件开发工程师（AI）",
+      "top_score": 21,
+      "main_gaps": [
+        "深度学习框架（PyTorch、TensorFlow）",
+        "机器学习算法",
+        "模型评估方法",
+        "自然语言处理或计算机视觉项目经验"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "软件开发工程师（AI）",
+      "top_score": 58,
+      "main_gaps": [
+        "机器学习",
+        "深度学习",
+        "TensorFlow",
+        "Linux"
+      ]
+    },
+    {
+      "date": "2026-02-28",
+      "top_job": "软件开发工程师（AI）",
+      "top_score": 58,
+      "main_gaps": [
+        "机器学习",
+        "深度学习",
+        "TensorFlow",
+        "Linux"
+      ]
+    }
+  ],
+  "known_skill_gaps": [
+    "LLM API",
+    "Python/C++/Go编程语言",
+    "自然语言处理/知识图谱/机器学习/神经网络/计算机视觉",
+    "Transformer模型推理",
+    "LLM应用程序开发",
+    "算法代码优化",
+    "自监督/半监督训练",
+    "机器学习",
+    "Transformer架构",
+    "GPT",
+    "深度学习框架（PyTorch、TensorFlow）",
+    "机器学习算法",
+    "模型评估方法",
+    "自然语言处理或计算机视觉项目经验",
+    "C++",
+    "Java",
+    "深度学习",
+    "Linux",
+    "Git",
+    "TensorFlow"
+  ]
+}

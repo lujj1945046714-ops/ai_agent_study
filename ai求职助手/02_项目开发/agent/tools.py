@@ -85,10 +85,11 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "recommend_learning",
-            "description": "根据技能缺口推荐 GitHub 开源项目，帮助用户针对性补齐短板",
+            "description": "根据技能缺口推荐 GitHub 开源项目，帮助用户针对性补齐短板。支持交互式重规划。",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "job_id": {"type": "string", "description": "职位唯一 ID，用于关联推荐结果"},
                     "skill_gaps": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -98,8 +99,16 @@ TOOL_SCHEMAS = [
                         "type": "integer",
                         "description": "推荐项目数量，默认 3",
                     },
+                    "user_choice": {
+                        "type": "string",
+                        "description": "用户对重规划的选择（replan/lower_stars/use_local），仅在收到 need_replan 状态后使用",
+                    },
+                    "retry_context": {
+                        "type": "object",
+                        "description": "重试上下文，从上次 need_replan 响应中获取",
+                    },
                 },
-                "required": ["skill_gaps"],
+                "required": ["job_id", "skill_gaps"],
             },
         },
     },
@@ -124,30 +133,6 @@ TOOL_SCHEMAS = [
 
 # ── Tool 实现函数 ────────────────────────────────────────────────────────────
 
-def tool_search_jobs(profile: Dict, cities: List[str], keywords: List[str], max_results: int = 10) -> Dict:
-    """搜索职位，返回列表摘要（不含完整 jd_text 以节省 token）"""
-    # 临时覆盖 profile 中的偏好
-    patched = dict(profile)
-    patched["preferences"] = dict(profile.get("preferences", {}))
-    patched["preferences"]["cities"] = cities
-    patched["target_roles"] = keywords
-
-    jobs = fetch_jobs(patched, max_results=max_results)
-    # 只返回摘要，完整 jd_text 留给 analyze_job
-    summary = [
-        {
-            "job_id": j["job_id"],
-            "title": j["title"],
-            "company": j["company"],
-            "city": j["city"],
-            "salary": j["salary"],
-            "jd_preview": j["jd_text"][:120].strip() + "...",
-        }
-        for j in jobs
-    ]
-    return {"count": len(summary), "jobs": summary}
-
-
 def tool_analyze_job(job_id: str, jd_text: str) -> Dict:
     """分析 JD，返回结构化结果"""
     result = analyze_jd(jd_text)
@@ -160,10 +145,23 @@ def tool_match_job(profile: Dict, job_id: str, analysis: Dict) -> Dict:
     return {"job_id": job_id, **result}
 
 
-def tool_recommend_learning(skill_gaps: List[str], top_n: int = 3, profile: Dict = None, analysis: Dict = None) -> Dict:
-    """推荐学习项目"""
-    repos = smart_recommend_projects(skill_gaps, profile=profile, analysis=analysis, top_n=top_n)
-    return {"skill_gaps": skill_gaps, "repos": repos}
+def tool_recommend_learning(skill_gaps: List[str], top_n: int = 3, profile: Dict = None, analysis: Dict = None, user_choice: str = None, retry_context: Dict = None) -> Dict:
+    """推荐学习项目（支持交互式重规划）"""
+    result = smart_recommend_projects(
+        skill_gaps,
+        profile=profile,
+        analysis=analysis,
+        top_n=top_n,
+        user_choice=user_choice,
+        retry_context=retry_context
+    )
+
+    # 兼容旧格式：如果返回的是 Dict 且有 status 字段，直接返回
+    if isinstance(result, dict) and "status" in result:
+        return {"skill_gaps": skill_gaps, **result}
+
+    # 旧格式兼容（如果 smart_recommend_projects 返回 List）
+    return {"skill_gaps": skill_gaps, "repos": result}
 
 
 def tool_generate_report(profile: Dict, ranked_jobs: List[Dict], output_dir: Path) -> Dict:

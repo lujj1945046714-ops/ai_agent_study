@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
-_MEMORY_FILE = Path(__file__).resolve().parent / "memory.json"
+_PROFILES_DIR = Path(__file__).resolve().parent / "profiles"
 
 _DEFAULT: Dict[str, Any] = {
     "user_preferences": {},
@@ -27,18 +27,24 @@ _DEFAULT: Dict[str, Any] = {
 }
 
 
-def load() -> Dict[str, Any]:
-    if _MEMORY_FILE.exists():
+def _memory_path(name: str) -> Path:
+    _PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    return _PROFILES_DIR / f"{name}_memory.json"
+
+
+def load(name: str = "default") -> Dict[str, Any]:
+    path = _memory_path(name)
+    if path.exists():
         try:
-            return json.loads(_MEMORY_FILE.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception as e:
             logger.warning("记忆文件读取失败，使用默认值：%s", e)
     return {k: v.copy() if isinstance(v, (list, dict)) else v for k, v in _DEFAULT.items()}
 
 
-def save(memory: Dict[str, Any]) -> None:
+def save(memory: Dict[str, Any], name: str = "default") -> None:
     try:
-        _MEMORY_FILE.write_text(
+        _memory_path(name).write_text(
             json.dumps(memory, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except Exception as e:

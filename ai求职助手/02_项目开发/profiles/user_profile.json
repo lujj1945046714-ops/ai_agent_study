@@ -1,0 +1,115 @@
+{
+  "name": "卢俊杰",
+  "target_cities": [],
+  "target_keywords": [],
+  "skills": {
+    "Python": {
+      "level": 4,
+      "years": 3
+    },
+    "PyTorch": {
+      "level": 4,
+      "years": 2
+    },
+    "Transformer": {
+      "level": 4,
+      "years": 2
+    },
+    "大模型微调": {
+      "level": 4,
+      "years": 2
+    },
+    "RAG": {
+      "level": 4,
+      "years": 2
+    },
+    "Agent": {
+      "level": 4,
+      "years": 1
+    },
+    "MCP": {
+      "level": 3,
+      "years": 1
+    },
+    "PPO": {
+      "level": 3,
+      "years": 1
+    },
+    "GRPO": {
+      "level": 3,
+      "years": 1
+    },
+    "GSPO": {
+      "level": 3,
+      "years": 1
+    },
+    "量化技术": {
+      "level": 3,
+      "years": 1
+    },
+    "知识蒸馏": {
+      "level": 4,
+      "years": 2
+    },
+    "并行训练策略": {
+      "level": 3,
+      "years": 1
+    },
+    "VAE": {
+      "level": 4,
+      "years": 1
+    },
+    "FT-Transformer": {
+      "level": 4,
+      "years": 1
+    },
+    "粒子群优化": {
+      "level": 3,
+      "years": 1
+    },
+    "LangChain": {
+      "level": 4,
+      "years": 1
+    },
+    "FFmpeg": {
+      "level": 3,
+      "years": 1
+    },
+    "OpenAI TTS": {
+      "level": 3,
+      "years": 1
+    },
+    "Qwen3": {
+      "level": 4,
+      "years": 2
+    },
+    "BGE": {
+      "level": 4,
+      "years": 2
+    },
+    "DeepSeek": {
+      "level": 4,
+      "years": 2
+    },
+    "BM25": {
+      "level": 3,
+      "years": 2
+    },
+    "NVIDIA MPS": {
+      "level": 3,
+      "years": 1
+    },
+    "VQA": {
+      "level": 3,
+      "years": 1
+    }
+  },
+  "experience_years": 2,
+  "education": "硕士",
+  "experience_level": "中级",
+  "preferences": {
+    "cities": [],
+    "salary_min_k": 0,
+    "salary_max_k": 0
+  }
+}

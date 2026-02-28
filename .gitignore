@@ -10,9 +10,7 @@ CLAUDE.md
 *.pyc
 *.pyo
 
-# Boss直聘爬虫残留
-ai求职助手/02_项目开发/modules/boss_scraper.py
-ai求职助手/02_项目开发/boss_session/
+
 
 # 个人数据与本地文件
 ai求职助手/02_项目开发/user_profile.json

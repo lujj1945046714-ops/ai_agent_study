@@ -1,5 +1,14 @@
+import json
 from typing import Any, Dict, List
 
+
+_JD_PARSE_PROMPT = """\
+从以下职位描述中提取结构化信息，严格按 JSON 格式输出，不要有任何多余文字：
+{{"title": "职位名称", "company": "公司名称", "city": "城市", "salary": "薪资范围", "jd_text": "原文"}}
+缺失字段用"未知"填充，jd_text 保留原始文本。
+职位描述：
+{raw_text}
+"""
 
 _MOCK_JOBS = [
     {
@@ -139,6 +148,57 @@ def fetch_jobs_from_input() -> List[Dict[str, Any]]:
             break
 
     print(f"\n共输入 {len(jobs)} 个职位，开始分析...\n")
+    return jobs
+
+
+def parse_jd_input(client: Any, model: str) -> List[Dict[str, Any]]:
+    """
+    交互式让用户粘贴 JD 文本（支持多个，用 === 分隔），
+    调用 LLM 解析每段为结构化 job dict，返回 List[Dict]。
+    """
+    print("\n请粘贴 JD 文本（多个 JD 之间用 === 分隔，完成后单独一行输入 END 回车）：")
+    lines = []
+    while True:
+        line = input()
+        if line.strip() == "END":
+            break
+        lines.append(line)
+
+    raw = "\n".join(lines).strip()
+    if not raw:
+        print("[警告] 未输入任何 JD，将使用 Mock 数据。")
+        return []
+
+    segments = [s.strip() for s in raw.split("===") if s.strip()]
+    print(f"\n[解析中] 共检测到 {len(segments)} 个 JD...")
+
+    jobs = []
+    for i, seg in enumerate(segments, 1):
+        prompt = _JD_PARSE_PROMPT.format(raw_text=seg)
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.choices[0].message.content.strip()
+            # 去掉可能的 ```json ``` 包裹
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            job = json.loads(text.strip())
+        except Exception as e:
+            print(f"[警告] 第 {i} 个 JD 解析失败（{e}），使用原文。")
+            job = {"title": "未知", "company": "未知", "city": "未知", "salary": "未知", "jd_text": seg}
+
+        job["job_id"] = f"paste-{i:03d}"
+        # 确保所有必填字段存在
+        for field in ("title", "company", "city", "salary", "jd_text"):
+            job.setdefault(field, "未知")
+        jobs.append(job)
+        print(f"  [{i}] {job['title']} @ {job['company']} ({job['city']})")
+
+    print(f"\n[完成] 共解析 {len(jobs)} 个职位。\n")
     return jobs
 
 
