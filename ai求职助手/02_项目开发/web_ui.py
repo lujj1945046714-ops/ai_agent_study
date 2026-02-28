@@ -89,12 +89,12 @@ def load_profile_from_file(file) -> Tuple[str, str]:
 
 # ── 聊天功能 ─────────────────────────────────────────────────────────────────
 
-def chat(message: str, history: List[Tuple], jd_text: str) -> Tuple[List[Tuple], str, str]:
+def chat(message: str, history: List[dict], jd_text: str) -> Tuple[List[dict], str, str]:
     """处理聊天消息"""
     global _profile
 
     if not _profile:
-        history = history + [(None, "⚠️ 请先在左侧加载用户画像")]
+        history = history + [{"role": "assistant", "content": "⚠️ 请先在左侧加载用户画像"}]
         return history, "", ""
 
     if not message.strip():
@@ -113,7 +113,10 @@ def chat(message: str, history: List[Tuple], jd_text: str) -> Tuple[List[Tuple],
 
         # 运行 Agent
         result = agent.run(message)
-        history = history + [(message, result)]
+        history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": result},
+        ]
 
         # 更新分析面板
         analysis_md = _build_analysis_panel(agent)
@@ -122,7 +125,10 @@ def chat(message: str, history: List[Tuple], jd_text: str) -> Tuple[List[Tuple],
 
     except Exception as e:
         logger.exception("聊天处理失败")
-        history = history + [(message, f"❌ 处理失败: {e}")]
+        history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": f"❌ 处理失败: {e}"},
+        ]
         return history, "", ""
 
 
@@ -246,7 +252,7 @@ def get_analyzed_jobs() -> List[str]:
 
 # ── 会话管理 ─────────────────────────────────────────────────────────────────
 
-def clear_session() -> Tuple[List, str, str]:
+def clear_session() -> Tuple[List[dict], str, str]:
     """清空会话"""
     global _agent
     _agent = None
