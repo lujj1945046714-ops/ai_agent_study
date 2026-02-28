@@ -358,122 +358,127 @@ class JobSearchAgent:
 
     def _handle_search_jobs(self, args: Dict) -> Any:
         """搜索职位"""
-        from modules.scraper import search_jobs
+        from modules.scraper import fetch_jobs
 
-        cities = args.get("cities", self.profile.get("target_cities", []))
-        keywords = args.get("keywords", self.profile.get("target_keywords", []))
+        patched = dict(self.profile)
+        patched["preferences"] = dict(self.profile.get("preferences", {}))
+        patched["preferences"]["cities"] = args.get("cities", [])
+        patched["target_roles"] = args.get("keywords", [])
 
-        jobs = search_jobs(cities=cities, keywords=keywords)
-
-        # 存入 _job_store
-        for j in jobs:
+        full_jobs = fetch_jobs(patched, max_results=args.get("max_results", 10))
+        for j in full_jobs:
             self._job_store[j["job_id"]] = j
 
-        return {
-            "success": True,
-            "count": len(jobs),
-            "jobs": jobs
-        }
+        summary = [
+            {
+                "job_id": j["job_id"],
+                "title": j["title"],
+                "company": j["company"],
+                "city": j["city"],
+                "salary": j["salary"],
+                "jd_preview": j["jd_text"][:120].strip() + "...",
+            }
+            for j in full_jobs
+        ]
+        return {"count": len(summary), "jobs": summary}
 
     def _handle_analyze_job(self, args: Dict) -> Any:
         """分析职位要求"""
-        job_id = args.get("job_id")
-        if not job_id:
-            return {"error": "缺少 job_id"}
-
-        job = self._job_store.get(job_id)
-        if not job:
-            return {"error": f"未找到职位: {job_id}"}
-
-        analysis = tool_analyze_job(job)
+        job_id = args["job_id"]
+        jd_text = args.get("jd_text") or self._job_store.get(job_id, {}).get("jd_text", "")
+        result = tool_analyze_job(job_id, jd_text)
 
         # Phase 2: 记录到对话记忆
         if self.enable_phase2:
+            job = self._job_store.get(job_id, {})
             self.conversation_memory.add_job_analysis(
                 job_id,
                 {
                     "title": job.get("title"),
                     "company": job.get("company"),
                     "city": job.get("city"),
-                    "salary": job.get("salary")
+                    "salary": job.get("salary"),
                 },
-                analysis
+                result
             )
 
-        # 存入 _results
-        if job_id not in self._results:
-            self._results[job_id] = {}
-        self._results[job_id]["analysis"] = analysis
-
-        return analysis
+        self._results.setdefault(job_id, {})["analysis"] = result
+        return result
 
     def _handle_match_job(self, args: Dict) -> Any:
         """计算匹配度"""
-        job_id = args.get("job_id")
-        if not job_id:
-            return {"error": "缺少 job_id"}
+        job_id = args["job_id"]
+        analysis = args.get("analysis") or self._results.get(job_id, {}).get("analysis", {})
+        result = tool_match_job(self.profile, job_id, analysis)
 
-        analysis = self._results.get(job_id, {}).get("analysis")
-        if not analysis:
-            return {"error": f"请先分析职位: {job_id}"}
+        self._results.setdefault(job_id, {})["match"] = result
 
-        match_result = tool_match_job(self.profile, analysis)
+        if result["score"] < 25:
+            self._results[job_id]["repos"] = []
+            result["recommend_learning_skipped"] = True
+            result["skip_reason"] = "匹配分低于25，已自动跳过学习推荐"
 
-        # Phase 2: 记录匹配结果
+        # Phase 2: 记录匹配结果 + 生成主动建议
         if self.enable_phase2:
-            self.conversation_memory.add_match_result(job_id, match_result)
+            self.conversation_memory.add_match_result(job_id, result)
 
-            # 生成主动建议
             job = self._job_store.get(job_id, {})
             suggestion = self.suggestion_engine.suggest_after_analysis(
                 job_id,
                 job.get("title", ""),
-                match_result.get("score", 0),
-                match_result.get("skill_gaps", []),
-                match_result.get("matched_skills", [])
+                result.get("score", 0),
+                result.get("skill_gaps", []),
+                result.get("matched_skills", [])
             )
+            result["proactive_suggestion"] = self.suggestion_engine.format_suggestion(suggestion)
 
-            # 将建议添加到返回结果
-            match_result["proactive_suggestion"] = self.suggestion_engine.format_suggestion(suggestion)
-
-        # 存入 _results
-        self._results[job_id]["match"] = match_result
-
-        return match_result
+        return result
 
     def _handle_recommend_learning(self, args: Dict) -> Any:
         """推荐学习项目"""
-        job_id = args.get("job_id")
-        if not job_id:
-            return {"error": "缺少 job_id"}
+        job_id = args.get("job_id", "")
+        skill_gaps = args.get("skill_gaps", [])
+        user_choice = args.get("user_choice")
+        retry_context = args.get("retry_context")
+        analysis = self._results.get(job_id, {}).get("analysis", {}) if job_id else {}
 
-        match_result = self._results.get(job_id, {}).get("match")
-        if not match_result:
-            return {"error": f"请先计算匹配度: {job_id}"}
+        result = tool_recommend_learning(
+            skill_gaps=skill_gaps,
+            top_n=args.get("top_n", 3),
+            profile=self.profile,
+            analysis=analysis,
+            user_choice=user_choice,
+            retry_context=retry_context,
+        )
 
-        projects = tool_recommend_learning(match_result)
+        if result.get("status") == "need_replan":
+            if job_id:
+                self._results.setdefault(job_id, {})["replan_pending"] = {
+                    "skill_gaps": skill_gaps,
+                    "retry_context": result.get("retry_context"),
+                    "failure_reason": result.get("failure_reason"),
+                }
+            return result
 
-        # Phase 2: 记录推荐项目
-        if self.enable_phase2:
-            self.conversation_memory.add_recommended_projects(job_id, projects)
+        # Phase 2: 记录推荐项目 + 生成主动建议
+        if job_id and result.get("repos"):
+            self._results.setdefault(job_id, {})["repos"] = result["repos"]
+            if "replan_pending" in self._results.get(job_id, {}):
+                del self._results[job_id]["replan_pending"]
 
-            # 生成推荐后建议
-            job = self._job_store.get(job_id, {})
-            already_recommended = len(self.conversation_memory.get_recommended_projects(job_id))
-            suggestion = self.suggestion_engine.suggest_after_recommendation(
-                job.get("title", ""),
-                len(projects),
-                already_recommended
-            )
+            if self.enable_phase2:
+                self.conversation_memory.add_recommended_projects(job_id, result["repos"])
 
-            # 将建议添加到返回结果
-            projects_with_suggestion = {
-                "projects": projects,
-                "proactive_suggestion": self.suggestion_engine.format_suggestion(suggestion)
-            }
-            return projects_with_suggestion
+                job = self._job_store.get(job_id, {})
+                already_count = len(self.conversation_memory.get_recommended_projects(job_id))
+                suggestion = self.suggestion_engine.suggest_after_recommendation(
+                    job.get("title", ""),
+                    len(result["repos"]),
+                    already_count
+                )
+                result["proactive_suggestion"] = self.suggestion_engine.format_suggestion(suggestion)
 
-        return {"projects": projects}
+        return result
 
     def _handle_create_learning_plan(self, args: Dict) -> Any:
         """制定学习计划（Phase 2 新增）"""
@@ -552,7 +557,7 @@ class JobSearchAgent:
         comparison.sort(key=lambda x: x["score"], reverse=True)
 
         # 生成对比建议
-        suggestion = self.suggestion_engine.suggest_job_comparison(comparison)
+        suggestion = self.suggestion_engine.suggest_job_comparison(len(comparison))
 
         return {
             "success": True,
@@ -563,10 +568,20 @@ class JobSearchAgent:
     def _handle_generate_report(self, args: Dict) -> Any:
         """生成最终报告"""
         try:
-            report_path = tool_generate_report(
+            # 构建 ranked_jobs 列表（合并 job_store 和 results）
+            ranked_jobs = []
+            for job_id, result in self._results.items():
+                job = self._job_store.get(job_id, {})
+                ranked_jobs.append({
+                    **job,
+                    "analysis": result.get("analysis", {}),
+                    "match": result.get("match", {}),
+                    "repos": result.get("repos", []),
+                })
+
+            result = tool_generate_report(
                 self.profile,
-                self._results,
-                self._job_store,
+                ranked_jobs,
                 self.output_dir
             )
 
@@ -574,14 +589,10 @@ class JobSearchAgent:
             if self.enable_phase2:
                 self.conversation_memory.add_conversation_turn(
                     "生成报告",
-                    f"已生成报告: {report_path}"
+                    f"已生成报告: {result.get('report_path')}"
                 )
 
-            return {
-                "success": True,
-                "report_path": str(report_path),
-                "analyzed_jobs": len(self._results)
-            }
+            return result
         except Exception as e:
             logger.exception("生成报告失败")
             return {"error": str(e)}
@@ -605,37 +616,16 @@ class JobSearchAgent:
         if not self._results:
             return
 
-        # 统计信息
-        total_jobs = len(self._results)
-        avg_score = sum(
-            r.get("match", {}).get("score", 0)
-            for r in self._results.values()
-        ) / total_jobs if total_jobs > 0 else 0
-
-        # 找出最佳匹配
-        best_job_id = max(
-            self._results.keys(),
-            key=lambda jid: self._results[jid].get("match", {}).get("score", 0),
-            default=None
+        best = max(
+            self._results.items(),
+            key=lambda kv: kv[1].get("match", {}).get("score", 0)
         )
+        job_id, data = best
+        job_info = self._job_store.get(job_id, {})
+        top_job = job_info.get("title", job_id)
+        top_score = data.get("match", {}).get("score", 0)
+        main_gaps = data.get("match", {}).get("skill_gaps", [])
 
-        best_job = None
-        if best_job_id:
-            best_job = self._job_store.get(best_job_id)
-
-        # 构建记忆条目
-        memory_entry = {
-            "total_analyzed": total_jobs,
-            "average_score": round(avg_score, 1),
-            "best_match": {
-                "job_id": best_job_id,
-                "title": best_job.get("title") if best_job else None,
-                "company": best_job.get("company") if best_job else None,
-                "score": self._results.get(best_job_id, {}).get("match", {}).get("score", 0)
-            } if best_job_id else None
-        }
-
-        # 保存到长期记忆
-        mem.add_entry(self._memory, "job_search_session", memory_entry)
-        mem.save(self._name, self._memory)
-        logger.info("长期记忆已保存")
+        mem.append_search(self._memory, top_job, top_score, main_gaps)
+        mem.save(self._memory, self._name)
+        logger.info("长期记忆已保存：top_job=%s score=%d", top_job, top_score)
