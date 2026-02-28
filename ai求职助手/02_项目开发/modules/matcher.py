@@ -5,8 +5,15 @@ _st_model = None
 
 
 def _get_st_model():
-    # 语义匹配已禁用（模型需联网下载，改用关键词匹配）
-    return None
+    global _st_model
+    if _st_model is not None:
+        return _st_model
+    try:
+        from sentence_transformers import SentenceTransformer
+        _st_model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
+        return _st_model
+    except Exception:
+        return None
 
 
 @lru_cache(maxsize=256)
@@ -52,8 +59,14 @@ def _norm(skill: str) -> str:
 
 def _extract_user_skills(profile: Dict[str, Any]) -> Set[str]:
     result: Set[str] = set()
-    for _, skill_list in profile.get("skills", {}).items():
-        for skill in skill_list:
+    skills = profile.get("skills", {})
+    if isinstance(skills, dict):
+        # 格式: {"Python": {"level": 3}, ...} 或 {"Python": 3, ...}
+        for skill_name in skills:
+            result.add(_norm(skill_name))
+    elif isinstance(skills, list):
+        # 格式: ["Python", "LangChain", ...]
+        for skill in skills:
             result.add(_norm(skill))
     return result
 
@@ -105,7 +118,8 @@ def match_job(profile: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, An
         reasons.append("岗位核心技能基本匹配，可直接进入项目落地阶段")
     else:
         reasons.append(f"主要差距：{', '.join(gaps_unique[:4])}")
-    reasons.append(f"岗位级别：{analysis.get('job_level', '未知')}，与你当前阶段匹配度较高")
+    match_desc = "较高" if score >= 60 else "一般" if score >= 40 else "偏低"
+    reasons.append(f"岗位级别：{analysis.get('job_level', '未知')}，与你当前阶段匹配度{match_desc}")
 
     return {
         "score": score,
