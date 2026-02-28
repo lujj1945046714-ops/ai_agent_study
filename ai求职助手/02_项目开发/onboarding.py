@@ -164,6 +164,63 @@ def extract_profile_from_history(llm_client, model: str, history: list) -> dict:
         raise
 
 
+_RESUME_EXTRACT_PROMPT = """你是求职画像提取助手。请从以下简历文本中提取结构化求职画像，
+严格返回 JSON，不含 markdown 代码块。
+
+JSON 结构与字段含义同标准画像格式：
+{
+  "name": "姓名或称呼",
+  "target_cities": ["目标城市"],
+  "target_keywords": ["目标岗位关键词"],
+  "skills": {"技能名": {"level": 0-5整数, "years": 数字}},
+  "experience_years": 数字,
+  "education": "学历",
+  "experience_level": "初级/中级/高级",
+  "preferences": {"cities": [], "salary_min_k": 数字, "salary_max_k": 数字}
+}
+
+技能 level 推断规则：项目经验丰富=4-5，熟练使用=3，了解/接触=1-2。
+experience_level：0-1年=初级，2-4年=中级，5+年=高级。
+只返回 JSON，不要任何解释。"""
+
+
+def extract_profile_from_resume(llm_client, model: str, resume_text: str) -> dict:
+    """
+    从简历文本中提取标准 profile JSON。
+    抛出异常而非返回默认值，让上层 UI 显示错误。
+    """
+    try:
+        resp = llm_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _RESUME_EXTRACT_PROMPT},
+                {"role": "user", "content": f"简历文本：\n{resume_text}"},
+            ],
+            temperature=0,
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            fix_resp = llm_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "请修复以下 JSON，只返回合法 JSON，不含任何解释或 markdown。"},
+                    {"role": "user", "content": raw},
+                ],
+                temperature=0,
+            )
+            return json.loads(fix_resp.choices[0].message.content.strip())
+    except json.JSONDecodeError as e:
+        logger.error("简历画像 JSON 解析失败（修复后仍无效）: %s", e)
+        raise ValueError(f"无法从简历中提取有效画像 JSON: {e}") from e
+    except Exception as e:
+        logger.error("简历画像提取 LLM 调用失败: %s", e)
+        raise
+
+
 # ── CLI 对话收集 ──────────────────────────────────────────────────────────────
 
 def _ask_reuse(profile: dict) -> bool:
