@@ -57,14 +57,7 @@ python web_ui.py
 ## 也可以用命令行
 
 ```bash
-# 线性流程（最简单）
 python main.py
-
-# ReAct Agent 模式（LLM 自主决策）
-python main.py --agent
-
-# Multi-Agent 模式（4 个专职 Agent 协作）
-python main.py --multi-agent
 ```
 
 ---
@@ -85,13 +78,7 @@ python main.py --multi-agent
   学习计划生成 + 报告输出
 ```
 
-**三种执行模式：**
-
-| 模式 | 特点 |
-|------|------|
-| Pipeline | 固定顺序执行，适合快速跑通 |
-| ReAct Agent | LLM 自主决定工具调用顺序，可动态跳过低分职位 |
-| Multi-Agent | LangGraph 调度 4 个专职 Agent 协作完成任务 |
+**执行模式：** ReAct Agent — LLM 自主决定工具调用顺序，根据上下文动态跳过低分职位，形成完整的 Think → Act → Observe 推理链
 
 ---
 
@@ -143,8 +130,7 @@ LLM 分析技能缺口 → 生成搜索策略
 │
 └── agent/
     ├── react_agent.py     # ReAct Agent 核心
-    ├── tools.py           # 工具定义
-    └── multi_agent/       # LangGraph Multi-Agent
+    └── tools.py           # 工具定义
 ```
 
 ---
