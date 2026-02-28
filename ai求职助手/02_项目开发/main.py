@@ -20,7 +20,7 @@ def run_agent(task: str = "帮我分析当前市场上适合我的 AI Agent 工�
     支持交互式用户画像引导 + JD 粘贴解析。
     """
     from openai import OpenAI
-    from agent.react_agent_enhanced import JobSearchAgent
+    from agent.react_agent import JobSearchAgent
     from onboarding import get_or_create_profile
     from modules.scraper import parse_jd_input
 

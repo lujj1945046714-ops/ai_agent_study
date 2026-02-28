@@ -38,7 +38,7 @@ def _get_agent(profile: dict):
     """获取或创建 Agent 实例"""
     global _agent
     from openai import OpenAI
-    from agent.react_agent_enhanced import JobSearchAgent
+    from agent.react_agent import JobSearchAgent
 
     if _agent is None:
         _agent = JobSearchAgent(
