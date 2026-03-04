@@ -5,6 +5,9 @@
 .claude/
 CLAUDE.md
 
+# Git worktrees
+.worktrees/
+
 # Python 缓存
 **/__pycache__/
 *.pyc
