@@ -9,12 +9,24 @@ import requests
 from job_assistant import config
 from job_assistant.llm_runtime import complete_json_flexible, has_llm_configured
 from job_assistant.repo_audit import audit_repository
+from job_assistant.modules.vector_search import create_vector_search_engine
 
 logger = logging.getLogger(__name__)
 
 # 24h 本地缓存文件
 _CACHE_FILE = str(config.DATA_DIR / "github_cache.json")
 _CACHE_TTL = 86400  # seconds
+
+# 向量搜索引擎（延迟初始化）
+_vector_engine = None
+
+
+def _get_vector_engine():
+    """获取向量搜索引擎（延迟初始化）"""
+    global _vector_engine
+    if _vector_engine is None:
+        _vector_engine = create_vector_search_engine(config.DATA_DIR / "vector_index")
+    return _vector_engine
 
 
 _REPO_CATALOG = [
@@ -552,6 +564,7 @@ def smart_recommend_projects(
     audit_expected_capabilities: List[str] | None = None,
     audit_allow_light_run: bool = True,
     audit_keep_workspace: bool = False,
+    use_vector_search: bool = False,
 ) -> Dict:
     """
     智能 GitHub 项目推荐（四步流程 + 交互式重规划）：
@@ -676,7 +689,65 @@ def smart_recommend_projects(
 
     # Step 2: 搜索 GitHub，合并去重
     seen_names: set = set(c["name"] for c in all_candidates)
-    if queries:
+
+    # 使用向量搜索（如果启用）
+    if use_vector_search and queries:
+        vector_engine = _get_vector_engine()
+        if vector_engine:
+            logger.info("使用混合搜索（关键词 + 语义）")
+            for q in queries:
+                query_str = q.get("query", "")
+                if not query_str:
+                    continue
+                previous_queries.append(query_str)
+
+                # 关键词搜索
+                keyword_items = _search_github(query_str, min_stars=min_stars)
+
+                # 混合搜索（RRF 融合）
+                try:
+                    hybrid_items = vector_engine.hybrid_search(
+                        query=query_str,
+                        keyword_results=keyword_items,
+                        top_k=20,
+                        w_keyword=0.5,
+                        w_semantic=0.5
+                    )
+
+                    # 增量添加新项目到索引
+                    vector_engine.add_repos(keyword_items)
+
+                    # 合并结果
+                    for item in hybrid_items:
+                        name = item.get("full_name", item.get("name", ""))
+                        if name and name not in seen_names:
+                            seen_names.add(name)
+                            all_candidates.append({
+                                "name": name,
+                                "url": item.get("html_url", item.get("url", f"https://github.com/{name}")),
+                                "stars": str(item.get("stargazers_count", item.get("stars", 0))),
+                                "description": item.get("description", "") or "",
+                                "fusion_score": item.get("fusion_score", 0),
+                            })
+                except Exception as e:
+                    logger.warning("混合搜索失败，降级到关键词搜索: %s", e)
+                    # 降级到关键词搜索
+                    for item in keyword_items:
+                        name = item.get("full_name", "")
+                        if name and name not in seen_names:
+                            seen_names.add(name)
+                            all_candidates.append({
+                                "name": name,
+                                "url": item.get("html_url", f"https://github.com/{name}"),
+                                "stars": str(item.get("stargazers_count", 0)),
+                                "description": item.get("description", "") or "",
+                            })
+        else:
+            logger.warning("向量搜索引擎不可用，降级到关键词搜索")
+            use_vector_search = False
+
+    # 纯关键词搜索（默认或降级）
+    if not use_vector_search and queries:
         for q in queries:
             query_str = q.get("query", "")
             if not query_str:
