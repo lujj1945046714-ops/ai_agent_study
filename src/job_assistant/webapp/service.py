@@ -728,37 +728,22 @@ class WebAppService:
         """执行 GitHub 项目搜索"""
         profile = self.get_profile(user_id) or {}
 
-        # 构建临时职位用于触发推荐
-        temp_job = {
-            "job_id": f"github_search_{uuid.uuid4().hex[:12]}",
-            "title": user_query,
-            "required_skills": [],
-            "preferred_skills": []
-        }
+        # 从用户查询中提取技能关键词作为 skill_gaps
+        skill_gaps = [user_query]
 
         # 调用 smart_recommend_projects
         result = smart_recommend_projects(
+            skill_gaps=skill_gaps,
             profile=profile,
-            job=temp_job,
+            analysis={},
             top_n=top_n,
-            min_stars=min_stars,
-            user_choice=user_choice
+            user_choice=user_choice,
+            retry_context=retry_context,
+            audit_top_repo=include_audit,
+            audit_expected_capabilities=[],
+            audit_allow_light_run=True,
+            audit_keep_workspace=False,
         )
-
-        # 如果需要审计第一个项目
-        if include_audit and result.get("status") == "success" and result.get("repos"):
-            first_repo = result["repos"][0]
-            repo_url = first_repo.get("url", "")
-            if repo_url:
-                try:
-                    audit_result = self._audit_repo_from_url(user_id, repo_url)
-                    first_repo["audit_summary"] = {
-                        "verdict": audit_result.get("verdict", ""),
-                        "summary": audit_result.get("summary", ""),
-                        "usable_modules": audit_result.get("usable_modules", []),
-                    }
-                except Exception:
-                    pass
 
         # 保存搜索记录
         search_record = self.store.save_github_search(
