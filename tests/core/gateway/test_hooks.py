@@ -1,5 +1,5 @@
 import pytest
-from core.gateway.hooks import HooksRegistry
+from agent_framework.gateway.hooks import HooksRegistry
 
 
 def test_register_hook():

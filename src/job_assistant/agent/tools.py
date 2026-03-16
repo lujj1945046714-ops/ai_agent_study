@@ -614,22 +614,18 @@ class SearchGitHubTool(BaseTool):
         temp_profile = {
             "name": "GitHub Search User",
             "target_roles": keywords or [user_query],
-            "skills": [],
+            "skills": {},
             "preferences": {}
         }
 
-        # 构建临时职位用于触发推荐
-        temp_job = {
-            "job_id": f"github_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            "title": user_query,
-            "required_skills": keywords or [],
-            "preferred_skills": []
-        }
+        # 从用户查询中提取技能关键词作为 skill_gaps
+        skill_gaps = keywords or [user_query]
 
         # 调用现有的 smart_recommend_projects
         result = smart_recommend_projects(
+            skill_gaps=skill_gaps,
             profile=temp_profile,
-            job=temp_job,
+            analysis={},
             top_n=top_n,
             min_stars=min_stars,
             user_choice=user_choice

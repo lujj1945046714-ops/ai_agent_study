@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import Mock
-from core.runtime.tool_dispatcher import ToolDispatcher, ToolCall, ToolResult
-from core.tools.registry import ToolRegistry
-from core.tools.base import BaseTool
-from core.gateway.hooks import HooksRegistry
+from agent_framework.runtime.tool_dispatcher import ToolDispatcher, ToolCall, ToolResult
+from agent_framework.tools.registry import ToolRegistry
+from agent_framework.tools.base import BaseTool
+from agent_framework.gateway.hooks import HooksRegistry
 
 
 class MockTool(BaseTool):

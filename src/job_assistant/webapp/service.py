@@ -742,6 +742,7 @@ class WebAppService:
             profile=profile,
             analysis={},
             top_n=top_n,
+            min_stars=min_stars,
             user_choice=user_choice,
             retry_context=retry_context,
             audit_top_repo=include_audit,

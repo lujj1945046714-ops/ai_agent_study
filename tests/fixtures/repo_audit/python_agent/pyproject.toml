@@ -1,0 +1,7 @@
+[project]
+name = "python-agent-fixture"
+version = "0.1.0"
+dependencies = []
+
+[project.scripts]
+python-agent = "python_agent.cli:main"

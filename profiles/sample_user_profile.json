@@ -1,0 +1,20 @@
+{
+  "name": "示例用户",
+  "target_cities": ["上海", "北京"],
+  "target_keywords": ["AI Agent", "LLM", "RAG"],
+  "skills": {
+    "Python": {"level": 4, "years": 3},
+    "RAG": {"level": 3, "years": 1},
+    "LangChain": {"level": 2, "years": 1},
+    "Docker": {"level": 2, "years": 1}
+  },
+  "experience_years": 3,
+  "education": "本科",
+  "experience_level": "中级",
+  "preferences": {
+    "cities": ["上海", "北京"],
+    "salary_min_k": 25,
+    "salary_max_k": 40
+  }
+}
+

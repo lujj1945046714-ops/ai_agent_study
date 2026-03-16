@@ -1,0 +1,3 @@
+[console_scripts]
+job-assistant = job_assistant.cli:main
+job-assistant-web = job_assistant.web_ui:main

@@ -1,6 +1,6 @@
 import pytest
 from abc import ABC
-from core.tools.base import BaseTool
+from agent_framework.tools.base import BaseTool
 
 
 def test_base_tool_is_abstract():

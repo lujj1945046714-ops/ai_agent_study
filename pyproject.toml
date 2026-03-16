@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-job-assistant"
+version = "0.1.0"
+description = "A harness-style agent framework with an AI job assistant demo."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.0.0",
+  "pydantic>=2.0.0",
+  "python-dotenv>=1.0.0",
+  "requests>=2.31.0",
+  "tomli>=2.0.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+web = [
+  "fastapi>=0.110.0",
+  "pypdf>=4.0.0",
+  "python-multipart>=0.0.9",
+  "uvicorn>=0.30.0",
+]
+semantic = [
+  "sentence-transformers>=2.0.0",
+]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+job-assistant = "job_assistant.cli:main"
+job-assistant-web = "job_assistant.web_ui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"job_assistant.webapp" = ["static/*.html", "static/*.css", "static/*.js"]

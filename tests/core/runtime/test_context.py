@@ -1,5 +1,5 @@
 import pytest
-from core.runtime.context import ContextManager
+from agent_framework.runtime.context import ContextManager
 
 
 def test_build_system_prompt(sample_user_profile):

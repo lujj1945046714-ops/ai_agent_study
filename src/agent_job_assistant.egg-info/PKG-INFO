@@ -1,0 +1,136 @@
+Metadata-Version: 2.4
+Name: agent-job-assistant
+Version: 0.1.0
+Summary: A harness-style agent framework with an AI job assistant demo.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: openai>=1.0.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: tomli>=2.0.0; python_version < "3.11"
+Provides-Extra: web
+Requires-Dist: fastapi>=0.110.0; extra == "web"
+Requires-Dist: pypdf>=4.0.0; extra == "web"
+Requires-Dist: python-multipart>=0.0.9; extra == "web"
+Requires-Dist: uvicorn>=0.30.0; extra == "web"
+Provides-Extra: semantic
+Requires-Dist: sentence-transformers>=2.0.0; extra == "semantic"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+
+# AI 求职助手（Harness 风格 Agent 项目）
+
+这个仓库包含两部分：
+
+1. **`src/agent_framework/`**：自研的 Agent Harness / Framework（分层架构 + Tool Registry + Hooks + 可追踪运行时）
+2. **`src/job_assistant/`**：业务示例应用：粘贴简历 + JD → 画像提取 → JD 解析 → 匹配评分 → 学习项目推荐 → 报告生成（CLI + FastAPI Web）
+
+> 目标：把“能跑的 Agent Demo”升级成“可复用、可测试、可观测”的工程化 Agent 项目，便于写入简历展示能力。
+
+当前默认策略是：在配置了可用 LLM 时，用户画像解析、岗位匹配打分、GitHub 项目推荐与重排序都直接走 LLM 评审；只有未配置 LLM 时才使用本地规则。
+
+---
+
+## 快速开始
+
+### 1) 创建虚拟环境并安装
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -U pip
+.\.venv\Scripts\python.exe -m pip install -e ".[web]"
+```
+
+> 如需测试：`.\.venv\Scripts\python.exe -m pip install -e ".[web,dev]"`
+>
+> 如需更好的语义匹配（可选）：`.\.venv\Scripts\python.exe -m pip install -e ".[web,semantic]"`
+
+### 2) 配置环境变量
+
+复制并填写 `.env`（或直接在系统环境变量中配置）：
+
+```env
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+
+# 可选：用于 GitHub 搜索/README 拉取
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxx
+
+# 可选：共享岗位缓存与多用户应用库
+JOB_ASSISTANT_DB_PATH=data/jobs.db
+JOB_ASSISTANT_APP_DB_PATH=data/app.db
+JOB_ASSISTANT_SESSION_SECRET=change-me-in-production
+```
+
+支持两种 LLM 模式：
+
+- `openai_compatible`（默认）：继续使用 `DEEPSEEK_*` / `JOB_ASSISTANT_LLM_*`
+- `codex`：运行时读取本机 `~/.codex/auth.json` 与 `~/.codex/config.toml`
+
+如果要复用当前 Codex 在 CLI 里使用的 key / base URL，不要把密钥复制进项目，直接设置：
+
+```env
+JOB_ASSISTANT_LLM_PROVIDER=codex
+# 可选：如果 Codex 配置目录不是默认位置
+# CODEX_HOME=C:\Users\<you>\.codex
+```
+
+当前实现会按 Codex 配置里的 `wire_api` 自动选择 `chat.completions` 或 `responses`；像 `wire_api=responses` 的 Codex/Yunyi 配置可直接复用。
+
+如果你要把这套 Codex 接入方式复用到别的项目，参考 `docs/codex-integration-guide.md`。
+
+如果某些 Codex 代理在 `responses` 模式下对结构化输出、严格 tool schema 或流式 SSE 兼容不完整，可以开启/保留兼容模式：
+
+```env
+JOB_ASSISTANT_RESPONSES_COMPAT_MODE=auto
+```
+
+`codex` provider 默认就是 `auto`，会做三件事：
+- 不再强依赖 `response_format`
+- 不发送部分可选的严格字段（如 `strict` / `assistant.phase`）
+- 流式请求遇到上游 `5xx/upstream_error` 时自动退回非流式请求
+
+### 3) 启动
+
+- CLI：
+  ```bash
+  job-assistant
+  ```
+- Web（FastAPI，多用户本地账号）：
+  ```bash
+  job-assistant-web
+  ```
+
+默认访问：`http://localhost:7860`
+
+Web 版当前能力：
+
+- 本地账号注册 / 登录
+- 每个用户独立的画像、对话线程、岗位搜索历史、学习计划和产物记录
+- 搜索结果与职位分析持久化到本地 SQLite
+- 报告、trace、仓库审计文件按用户落到 `output/users/<user_id>/`
+- 首个注册用户会自动导入旧版单用户 `profile/session/report/audit` 历史
+
+### 4) 自助找岗位（公开网页聚合）
+
+- 在 Agent 对话里直接说：
+  - `帮我找上海的 AI Agent 岗位`
+  - `刷新一下最近的 LLM 应用开发岗位`
+  - `帮我找和我画像匹配度最高的岗位`
+- Agent 会优先走公开岗位搜索 → JD 抽取 → 去重 → 匹配打分，并把 shortlist 持久化到 SQLite。
+- 再次搜索同一条件时，默认复用最近一次结果；如果你明确说“刷新岗位”，会重新抓取公开页面并只补新结果。
+- 当前默认只使用公开网页聚合搜索（DuckDuckGo + 页面抽取），并会尽量过滤需要登录/验证码的拦截页。
+
+### 5) 审计 GitHub 项目（下载 → 运行 → 清理）
+
+```bash
+job-assistant audit-repo https://github.com/owner/repo ^
+  --capability agent ^
+  --capability cli
+```
+
+- 默认会保留 `output/repo_audits/<task_id>/audit.md`、`audit.json`、`trace.jsonl`
+- 默认会清理下载下来的仓库、`.venv`、`node_modules` 等临时工作区
+- 如需保留沙箱工作区，追加 `--keep-workspace`

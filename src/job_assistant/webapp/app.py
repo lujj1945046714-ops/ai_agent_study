@@ -305,6 +305,7 @@ def create_app() -> FastAPI:
                 top_n=payload.top_n,
                 include_audit=payload.include_audit,
                 include_similar=payload.include_similar,
+                use_profile=payload.use_profile,
                 user_choice=payload.user_choice,
                 retry_context=payload.retry_context,
             )

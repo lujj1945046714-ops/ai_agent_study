@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from datetime import datetime
-from core.memory.markdown_memory import MarkdownMemory
+from agent_framework.memory.markdown_memory import MarkdownMemory
 
 
 def test_create_session_file(temp_memory_dir):

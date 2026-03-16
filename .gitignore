@@ -1,6 +1,10 @@
 .env
 *.env
 
+# Virtual environments
+.venv/
+**/.venv/
+
 # Claude Code 配置（本地）
 .claude/
 CLAUDE.md
@@ -12,13 +16,20 @@ CLAUDE.md
 **/__pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
 
 
-# 个人数据与本地文件
-ai求职助手/02_项目开发/user_profile.json
-ai求职助手/02_项目开发/memory.json
-ai求职助手/02_项目开发/data/jobs.db
-ai求职助手/02_项目开发/output/
-ai求职助手/02_项目开发/modules/.github_cache.json
-ai求职助手/02_项目开发/.env
+# Local runtime artifacts (do not commit)
+data/
+output/
+
+# Legacy directory (migrated to src/)
+ai求职助手/
+
+# Local profiles (keep only sanitized samples)
+profiles/*.json
+!profiles/sample_*.json
+
+ai求职助手/02_项目开发/.venv
+.venv/

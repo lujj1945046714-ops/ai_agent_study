@@ -1,6 +1,6 @@
 import pytest
-from core.tools.registry import ToolRegistry
-from core.tools.base import BaseTool
+from agent_framework.tools.registry import ToolRegistry
+from agent_framework.tools.base import BaseTool
 
 
 class MockTool(BaseTool):

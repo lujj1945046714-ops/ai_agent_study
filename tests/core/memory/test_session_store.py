@@ -1,7 +1,7 @@
 import pytest
 import json
 from pathlib import Path
-from core.memory.session_store import SessionStore
+from agent_framework.memory.session_store import SessionStore
 
 
 def test_save_session(temp_memory_dir):
