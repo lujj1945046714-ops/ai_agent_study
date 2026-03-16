@@ -10,6 +10,7 @@ from job_assistant import config
 from job_assistant.llm_runtime import complete_json_flexible, has_llm_configured
 from job_assistant.repo_audit import audit_repository
 from job_assistant.modules.vector_search import create_vector_search_engine
+from job_assistant.modules.github_filters import GitHubFilter, build_github_query
 
 logger = logging.getLogger(__name__)
 
