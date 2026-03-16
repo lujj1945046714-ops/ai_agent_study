@@ -722,11 +722,16 @@ class WebAppService:
         top_n: int = 5,
         include_audit: bool = False,
         include_similar: bool = True,
+        use_profile: bool = False,
         user_choice: str | None = None,
         retry_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """执行 GitHub 项目搜索"""
-        profile = self.get_profile(user_id) or {}
+        # 根据 use_profile 决定是否使用用户画像
+        if use_profile:
+            profile = self.get_profile(user_id) or {}
+        else:
+            profile = {}  # 传递空画像,实现独立搜索
 
         # 从用户查询中提取技能关键词作为 skill_gaps
         skill_gaps = [user_query]

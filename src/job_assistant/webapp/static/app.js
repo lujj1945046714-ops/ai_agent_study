@@ -469,6 +469,22 @@ function githubPage() {
           <h3 class="detail-title">搜索表单</h3>
           <form id="github-search-form" class="form-grid">
             <label>描述你的需求<textarea name="userQuery" placeholder="例如：我想学习 RAG 开发、寻找 AI Agent 框架、学习 LangChain 实战项目" rows="4"></textarea></label>
+            <div class="search-mode-selector">
+              <label class="mode-option">
+                <input type="radio" name="searchMode" value="independent" checked />
+                <span class="mode-label">
+                  <strong>独立搜索</strong>
+                  <small>纯粹基于查询词搜索，不考虑我的简历背景</small>
+                </span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="searchMode" value="profile-based" />
+                <span class="mode-label">
+                  <strong>根据简历推荐</strong>
+                  <small>结合我的经验水平和技能，推荐更适合的项目</small>
+                </span>
+              </label>
+            </div>
             <div class="field-grid">
               <label>最低 Star 数
                 <select name="minStars">
@@ -876,6 +892,11 @@ function bindEvents() {
       try {
         state.githubLoading = true;
         render();
+
+        // 获取搜索模式
+        const searchMode = String(form.get("searchMode") || "independent");
+        const useProfile = searchMode === "profile-based";
+
         const result = await api("/api/github/search", {
           method: "POST",
           body: JSON.stringify({
@@ -884,6 +905,7 @@ function bindEvents() {
             top_n: Number(form.get("topN") || 5),
             include_audit: Boolean(form.get("includeAudit")),
             include_similar: Boolean(form.get("includeSimilar")),
+            use_profile: useProfile,
           }),
         });
         state.activeGitHubSearch = result;

@@ -860,6 +860,64 @@ select:focus {
   font-style: italic;
 }
 
+.search-mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-option:hover {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--accent-2);
+}
+
+.mode-option input[type="radio"] {
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.mode-option input[type="radio"]:checked + .mode-label {
+  color: var(--accent-2);
+}
+
+.mode-option:has(input[type="radio"]:checked) {
+  background: rgba(33, 93, 90, 0.08);
+  border-color: var(--accent-2);
+}
+
+.mode-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-label strong {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.mode-label small {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 @media (max-width: 1200px) {
   .workspace-grid,
   .stats-grid,

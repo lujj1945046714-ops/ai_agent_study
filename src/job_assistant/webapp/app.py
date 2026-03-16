@@ -63,6 +63,7 @@ class GitHubSearchPayload(BaseModel):
     top_n: int = 5
     include_audit: bool = False
     include_similar: bool = True
+    use_profile: bool = False  # 是否使用用户画像
     user_choice: str | None = None
     retry_context: dict[str, Any] | None = None
 
